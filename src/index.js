@@ -25,7 +25,6 @@ const randomHex = n => Array.from(crypto.getRandomValues(new Uint8Array(n)), b =
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
 const hasDb = env => !!(env.DB && typeof env.DB.prepare === 'function');
 const authReady = env => hasDb(env) && !!(env.RESEND_API_KEY && env.EMAIL_FROM && env.SESSION_PEPPER && env.OTP_PEPPER);
-const aiConfigured = env => authReady(env) && env.AI_ENABLED === 'true' && !!env.OPENAI_API_KEY;
 const clampLimit = (value, maximum) => {
   const n = Number(value);
   return Number.isInteger(n) && n >= 0 ? Math.min(n, maximum) : 0;
@@ -34,6 +33,15 @@ const clampLimit = (value, maximum) => {
 // A separate explicit Cloudflare quota variable is required.
 const freeLimit = env => clampLimit(env.FREE_AI_DAILY_LIMIT, 5);
 const paidLimit = env => clampLimit(env.PAID_AI_DAILY_LIMIT, 25);
+// These are shared ceilings across every adult account. Both default to zero (fail closed).
+// Per-user caps alone do NOT control the platform's total API bill.
+const globalDailyLimit = env => clampLimit(env.GLOBAL_AI_DAILY_LIMIT, 100);
+const globalMonthlyLimit = env => clampLimit(env.GLOBAL_AI_MONTHLY_LIMIT, 1000);
+const aiModel = env => env.AI_MODEL || 'gpt-6-luna';
+const allowedModel = env => aiModel(env) === 'gpt-6-luna';
+const costGuardsReady = env => globalDailyLimit(env) > 0 && globalMonthlyLimit(env) > 0 && allowedModel(env);
+const aiConfigured = env => authReady(env) && env.AI_ENABLED === 'true' &&
+  !!env.OPENAI_API_KEY && costGuardsReady(env);
 
 function cookieHeader(token, durationSeconds = null) {
   const parts = [`${COOKIE_NAME}=${token}`, 'Path=/', 'HttpOnly', 'Secure', 'SameSite=Strict'];
@@ -72,6 +80,15 @@ async function rate(env, key, limit, windowSeconds) {
      ON CONFLICT(bucket) DO UPDATE SET hits=hits+1 WHERE hits<? RETURNING hits`)
     .bind(bucket, (window + 1) * windowSeconds, limit).first();
   return !!r;
+}
+// An atomic shared counter in D1: one reservation per attempted upstream request.
+// Calendar UTC day/month names are part of the key to avoid mid-month rollovers.
+async function reserveGlobalAiCall(env, scope, windowName, limit, expiresAt) {
+  const bucket = await digest(`${env.OTP_PEPPER}:ai-budget:${scope}:${windowName}`);
+  const row = await env.DB.prepare(`INSERT INTO rate_limits(bucket,hits,expires_at) VALUES(?,1,?)
+    ON CONFLICT(bucket) DO UPDATE SET hits=hits+1 WHERE hits<? RETURNING hits`)
+    .bind(bucket, expiresAt, limit).first();
+  return !!row;
 }
 async function sendLoginEmail(env, email, code) {
   const msg = {
@@ -161,11 +178,19 @@ async function currentUser(req, env) {
   }
   const plan = await userPlan(user, env);
   const limit = !user || !aiConfigured(env) ? 0 : plan === 'paid' ? paidLimit(env) : freeLimit(env);
+  let used = 0;
+  if (user && limit > 0) {
+    const day = new Date().toISOString().slice(0, 10);
+    const row = await env.DB.prepare('SELECT used FROM daily_ai_usage WHERE user_id=? AND day=?')
+      .bind(user.id, day).first();
+    used = Math.min(limit, Math.max(0, Number(row?.used) || 0));
+  }
   return json({
     ok: true, authenticated: !!user, email: user?.email || null,
     authEnabled: authReady(env), plan, aiEnabled: limit > 0,
     guardianDeclaration, guardianIdentityVerified: false, childAIEnabled: false,
-    dailyAiLimit: limit, billingEnabled: false, cloudLearningSyncEnabled: false,
+    dailyAiLimit: limit, dailyAiUsed: used, dailyAiRemaining: Math.max(0, limit - used),
+    aiCostGuardReady: costGuardsReady(env), billingEnabled: false, cloudLearningSyncEnabled: false,
     rememberLoginOption: true,
   });
 }
@@ -209,6 +234,18 @@ async function aiChat(req, env) {
     VALUES(?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET
     used=used+1 WHERE used<? RETURNING used`).bind(user.id, day, limit).first();
   if (!allowed) return fail(429, 'quota_exceeded', `今天已達 ${limit} 次個人助理 AI 上限。`);
+  // Per-user reservation goes first so accounts already over quota cannot exhaust
+  // the shared platform budget. A blocked global-budget request may still consume
+  // a per-user slot; this favors fail-closed cost control, not exact billing.
+  const date = new Date();
+  const utcDay = date.toISOString().slice(0, 10);
+  const utcMonth = utcDay.slice(0, 7);
+  const nextDay = Math.floor(Date.parse(utcDay + 'T00:00:00Z') / 1000) + 86400;
+  const nextMonth = Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1) / 1000);
+  if (!await reserveGlobalAiCall(env, 'month', utcMonth, globalMonthlyLimit(env), nextMonth))
+    return fail(429, 'platform_monthly_cap', 'NELUUN 本月 AI 安全額度已達上限，未發送新請求。');
+  if (!await reserveGlobalAiCall(env, 'day', utcDay, globalDailyLimit(env), nextDay))
+    return fail(429, 'platform_daily_cap', 'NELUUN 今日 AI 安全額度已達上限，未發送新請求。');
   let answer;
   try {
     const controller = new AbortController();
@@ -218,12 +255,12 @@ async function aiChat(req, env) {
       response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST', headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: env.AI_MODEL || 'gpt-4.1-mini',
+          model: aiModel(env), reasoning: { effort: 'none' },
           input: [
             { role: 'system', content: '你是 NELUUN 成人個人助理。使用繁體中文，尊重使用者自主權，清楚、簡潔回答。切勿推斷未提供的敏感個人資訊；若涉及兒童私密資訊，請提醒避免提供。' },
             { role: 'user', content: prompt },
           ],
-          max_output_tokens: 350, store: false,
+          max_output_tokens: 320, store: false,
         }), signal: controller.signal,
       });
     } finally { clearTimeout(timeout); }
