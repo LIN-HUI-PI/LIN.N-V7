@@ -1,5 +1,5 @@
-// NELUUN V9.1 - cache only static assets. Never cache /api/ or account data.
-const CACHE = 'neluun-v9-final-20261028';
+// NELUUN V9.2 - cache only static assets. Never cache /api/ or account data.
+const CACHE = 'neluun-v9-2-ai-guard-20261028';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', event => event.waitUntil(
   caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())
