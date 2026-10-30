@@ -1,0 +1,56 @@
+name: NELUUN Android Test APK
+
+on:
+  push:
+    branches: [neluun-v9-development]
+    paths:
+      - '.github/workflows/neluun-android-test-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Install Capacitor
+        run: npm install --no-audit --no-fund @capacitor/core@8 @capacitor/android@8 @capacitor/cli@8
+      - name: Configure preview
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = 'capacitor.config.json';
+          const c = JSON.parse(fs.readFileSync(path, 'utf8'));
+          c.server = {
+            url: 'https://neluun-v9-demo.pages.dev/',
+            cleartext: false
+          };
+          fs.writeFileSync(path, JSON.stringify(c, null, 2));
+          NODE
+      - name: Build Android project
+        run: |
+          npx cap add android
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NELUUN-Android-TEST-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+          if-no-files-found: error
