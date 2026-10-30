@@ -1,0 +1,53 @@
+name: NELUUN V9.5 family safety preview (no deployment)
+
+on:
+  push:
+    branches:
+      - neluun-v9-5-safety
+    paths:
+      - '.github/workflows/apply_neluun_v95.py'
+      - '.github/workflows/neluun-v95-preview-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-preview:
+    name: Validate and package V9.5 without publishing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check V9.4 source and patch source
+        run: |
+          test -f public/index.html
+          test -f .github/workflows/apply_neluun_v95.py
+          grep -q 'V9.4 · SAFE CONNECTION' public/index.html
+          python -m py_compile .github/workflows/apply_neluun_v95.py
+      - name: Make a NEW preview directory without changing source file
+        run: |
+          mkdir -p v95-preview
+          cp -a public/. v95-preview/
+          python .github/workflows/apply_neluun_v95.py public/index.html --output v95-preview/index.html
+          grep -q 'V9.5 · FAMILY SAFETY PREVIEW' v95-preview/index.html
+          sed -i 's/neluun-v9-4-safe-backup-20261030/neluun-v9-5-family-safety-preview-20261031/g' v95-preview/sw.js
+          python - <<'PYCODE'
+          from pathlib import Path
+          html = Path('v95-preview/index.html').read_text(encoding='utf-8')
+          assert 'NELUUN_V95_GUARD' in html
+          assert 'v95Gate()' in html
+          assert 'V9.5 · FAMILY SAFETY PREVIEW' in html
+          script = html.split('<script>')[-1].split('</script>')[0]
+          Path('/tmp/neluun-v95-check.js').write_text(script, encoding='utf-8')
+          PYCODE
+          node --check /tmp/neluun-v95-check.js
+      - name: Upload V9.5 preview files
+        uses: actions/upload-artifact@v4
+        with:
+          name: NELUUN-V9.5-FAMILY-SAFETY-PREVIEW-NOT-RELEASE
+          path: v95-preview/
+          retention-days: 7
+          if-no-files-found: error
