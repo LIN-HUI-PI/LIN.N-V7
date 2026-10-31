@@ -7,6 +7,8 @@ on:
       - functions/api/**
       - migrations/0002_parent_access.sql
       - tests/parent_api.test.js
+      - tests/parent_client.test.js
+      - public/v95_parent_client.js
       - .github/workflows/neluun-v95-auth-api-check.yml
       - wrangler.v95.test.jsonc
   workflow_dispatch:
