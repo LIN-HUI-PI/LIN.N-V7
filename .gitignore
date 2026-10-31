@@ -1,0 +1,11 @@
+# Local / Cloudflare build outputs only — never commit deployed config or DB IDs.
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
+wrangler.v95.generated.jsonc
+v95-preview/
+.DS_Store
