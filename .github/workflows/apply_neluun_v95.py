@@ -136,7 +136,7 @@ def patch(source):
  }catch(err){console.warn('無法儲存本機紀錄',err);v95Error='本機儲存失敗，請先確認備份'}}""",'saveLocal')
     output=replace_once(output,"function downloadLocal(){", "function downloadLocal(){if(!s.v95Unlocked){alert('請先通過家長安全鎖，才能匯出成人資料');return;}", 'export guard')
     output=replace_once(output,
-      "   const value=JSON.stringify(restored);\n   try{localStorage.setItem(STORE,value)}catch{throw Error('無法寫入本機儲存空間；原本資料未被覆蓋。')}\n   Object.assign(s,restored);",
+      "  const value=JSON.stringify(restored);\n  try{localStorage.setItem(STORE,value)}catch{throw Error('無法寫入本機儲存空間；原本資料未被覆蓋。')}\n  Object.assign(s,restored);",
       """   if(!s.v95Unlocked||!v95HasVault())throw Error('請先設定並解鎖家長安全鎖');
    await v95WriteQueue;
    await v95PersistAdult(restored.tasks,restored.notes);
@@ -155,17 +155,17 @@ def patch(source):
     output=replace_once(output,
       "function view(target){if(s.mode==='adult'){s.adultView=target==='you'?'you':target}else if(s.mode==='child'){s.childView=target}render();window.scrollTo(0,0)}",
       """function view(target){if(s.mode==='adult'){s.adultView=target==='you'?'you':target}else if(s.mode==='child'){if(s.childView==='parent'&&target!=='parent')v95Lock();s.childView=target}render();window.scrollTo(0,0)}""",'view')
-    output=replace_once(output,"  case 'exportLocal':downloadLocal();break;", "  case 'exportLocal':downloadLocal();break;", 'export (no-op validation)')
-    output=replace_once(output,"  case 'mode':s.mode=button.dataset.mode;render();window.scrollTo(0,0);break;",
+    output=replace_once(output," case 'exportLocal':downloadLocal();break;", " case 'exportLocal':downloadLocal();break;", 'export (no-op validation)')
+    output=replace_once(output," case 'mode':s.mode=button.dataset.mode;render();window.scrollTo(0,0);break;",
        "  case 'mode':v95Lock();s.mode=button.dataset.mode;render();window.scrollTo(0,0);break;",'mode')
-    output=replace_once(output,"  case 'choose':s.mode='choice';s.homeAccountOpen=false;render();window.scrollTo(0,0);break;",
+    output=replace_once(output," case 'choose':s.mode='choice';s.homeAccountOpen=false;render();window.scrollTo(0,0);break;",
        "  case 'choose':v95Lock();s.mode='choice';s.homeAccountOpen=false;render();window.scrollTo(0,0);break;",'choose')
     output=replace_once(output,
       "if(kind==='requestLogin'){", "if(kind==='v95Enroll'){v95Enroll(form);return;}if(kind==='v95Unlock'){v95Unlock(form);return;}if(kind==='requestLogin'){",'form action')
     output=replace_once(output,
-      "   if(el.dataset.action==='importLocalFile'){", "   if(el.dataset.action==='importLocalFile'&&!s.v95Unlocked){alert('請先通過家長安全鎖');return;}\n   if(el.dataset.action==='importLocalFile'){",'import event')
+      "  if(el.dataset.action==='importLocalFile'){", "   if(el.dataset.action==='importLocalFile'&&!s.v95Unlocked){alert('請先通過家長安全鎖');return;}\n   if(el.dataset.action==='importLocalFile'){",'import event')
     output=replace_once(output,
-      "  case 'homeAccount':s.homeAccountOpen=true;render();break;",
+      " case 'homeAccount':s.homeAccountOpen=true;render();break;",
       "  case 'homeAccount':if(!s.v95Unlocked){s.mode='adult';render();break;}s.homeAccountOpen=true;render();break;",'home account')
     # Ensure these are still present.
     for key in ["case 'subject'","function childSubjects()","function adultTools()","function refreshAuth", "v95Envelope", "V9.5 · FAMILY SAFETY PREVIEW"]:
