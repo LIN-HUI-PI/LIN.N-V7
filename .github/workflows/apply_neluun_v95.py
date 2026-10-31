@@ -58,6 +58,8 @@ function v95QueueSave(){
  v95WriteQueue.catch(e=>{v95Error='儲存失敗：請勿關閉 App，先匯出備份。';console.error('V9.5 secure write failed',e)});
 }
 function v95Lock(){
+ if(v95ServerVerified&&v95ParentClient)v95ParentClient.lock().catch(()=>{});
+ v95ServerVerified=false;v95CodeSent=false;
  if(s.v95Unlocked)v95QueueSave();
  s.v95Unlocked=false;v95Key=null;
  // Before first lock enrollment retain legacy data in memory for lossless migration.
@@ -65,13 +67,41 @@ function v95Lock(){
  if(v95HasVault()){s.tasks=[];s.notes=[];}
  s.adultMessages=[];s.adultConversations=[];s.adultAiConsent=false;
 }
+let v95ServerVerified=false,v95CodeSent=false,v95ParentClient=null;
+function v95Client(){
+ if(!window.NELUUN_ParentStepUp)throw Error('家長驗證程式尚未載入。');
+ if(!v95ParentClient)v95ParentClient=new window.NELUUN_ParentStepUp();
+ return v95ParentClient;
+}
+async function v95SendCode(){
+ try{if(!s.authOnline||!s.auth.authenticated)throw Error('請先登入成人會員。');
+  await v95Client().challenge();v95CodeSent=true;v95ServerVerified=false;v95Error='驗證碼已寄出，請輸入信件中的六位數字。';
+ }catch(e){v95ServerVerified=false;v95Error=e.message||'無法寄送驗證碼';}
+ render();
+}
+async function v95CheckCode(form){
+ try{const code=String(new FormData(form).get('parentCode')||'').trim();
+  await v95Client().verify(code);v95ServerVerified=true;v95Error='';
+ }catch(e){v95ServerVerified=false;v95Error=e.message||'驗證失敗';}
+ render();
+}
+async function v95RequireServer(){
+ if(!v95ServerVerified || !await v95Client().status()){
+  v95ServerVerified=false;throw Error('請先完成家長電子郵件二次驗證。');
+ }
+}
 function v95Gate(){
+ if(!s.authOnline||!s.auth.authenticated)
+  return '<div class="v95-protect"><section class="v95-card"><h1>先登入成人帳號</h1><p>兒童練習不用登入，成人私人區需要先驗證電子郵件。</p>'+accountArea()+'<button type="button" class="v95-secondary" data-action="choose">返回雙入口</button></section></div>';
+ if(!v95ServerVerified)
+  return '<div class="v95-protect"><section class="v95-card"><h1>成人區二次驗證</h1><p>先寄送六位數驗證碼到已登入的信箱，再使用這台裝置的家長密碼。</p>'+(v95Error?'<div class="v95-error" role="alert">'+html(v95Error)+'</div>':'')+'<button type="button" data-action="v95SendCode">寄送六位數驗證碼</button>'+(v95CodeSent?'<form data-form="v95CheckCode"><label for="v95code">信箱驗證碼</label><input id="v95code" name="parentCode" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code" required><button type="submit">確認驗證碼</button></form>':'')+'<button type="button" class="v95-secondary" data-action="choose">返回雙入口</button></section></div>';
  const setup=!v95HasVault();
  const blocked=(()=>{try{return JSON.parse(localStorage.getItem(V95_FAIL)||'{}').until>Date.now()}catch{return false}})();
  return `<div class="v95-protect"><section class="v95-card"><h1>🔐 ${setup?'設定家長安全鎖':'家長解鎖'}</h1><p>${setup?'首次進入成人私人區，請先以電子郵件驗證登入，再設定此裝置的家長密碼。會員登入和家長鎖是兩個不同步驟。':'進入成人私人空間前，需要家長密碼。即使已登入會員，也必須先解鎖。'}</p><p>兒童免費本機練習不需要登入。家長安全鎖保護本機私人資料，但尚未完成原生裝置驗證或伺服器權限驗證。</p>${v95Error?`<div class="v95-error" role="alert">${html(v95Error)}</div>`:''}${setup&&!s.auth.authenticated?accountArea():''}<form data-form="${setup?'v95Enroll':'v95Unlock'}"><label for="v95pw">家長密碼</label><input id="v95pw" name="password" type="password" autocomplete="off" minlength="8" maxlength="64" required ${blocked?'disabled':''}>${setup?'<label for="v95confirm">再輸入一次密碼</label><input id="v95confirm" name="confirmation" type="password" autocomplete="off" minlength="8" maxlength="64" required>':''}<button type="submit" ${blocked?'disabled':''}>${setup?'啟用家長安全鎖':'解鎖成人區'}</button><button type="button" class="v95-secondary" data-action="choose">返回雙入口</button></form>${setup?'<small>建議使用至少 8 字元且同時包含英文和數字的獨立密碼。設定後會加密此裝置原有待辦和筆記，不會修改雲端登入資料。忘記密碼無法直接復原，請安全保存備份。</small>':'<small>連續輸入錯誤 5 次會暫停 1 分鐘。這不是完整的防破解措施；正式 App 仍需原生安全儲存與 API 權限驗證。</small>'}</section></div>`;
 }
 async function v95Enroll(form){
  try{
+  await v95RequireServer();
   if(v95HasVault())throw Error('已存在安全鎖，請改用解鎖');
   if(!s.authOnline||!s.auth.authenticated)throw Error('請先完成成人電子郵件驗證登入，才能設定家長安全鎖');
   if(!globalThis.isSecureContext||!crypto?.subtle)throw Error('需要安全 HTTPS 網頁或原生安全來源');
@@ -91,6 +121,7 @@ async function v95Enroll(form){
 }
 async function v95Unlock(form){
  try{
+  await v95RequireServer();
   const rate=JSON.parse(localStorage.getItem(V95_FAIL)||'{}');
   if(rate.until>Date.now())throw Error('密碼錯誤次數過多，請稍後再試');
   if(!globalThis.isSecureContext||!crypto?.subtle)throw Error('此環境不支援安全加密');
@@ -120,6 +151,7 @@ def patch(source):
     if 'NELUUN_V95_GUARD' in source:raise ValueError('V9.5 patch already applied')
     if 'V9.4 · SAFE CONNECTION' not in source:raise ValueError('Expected V9.4 baseline not found')
     output=source
+    output=replace_once(output,'<script>', '<script type="module" src="./v95_parent_client.js"></script><script>', 'load parent API client')
     output=replace_once(output,'</style>','\n'+GATE_CSS+'\n</style>','style')
     output=replace_once(output,"const STORE='neluun_v8_local'; // Retain V8 local data; do not overwrite backups", "const STORE='neluun_v8_local'; // Retain V8 local data; do not overwrite backups\n// NELUUN_V95_GUARD: separate adult encrypted vault with required parent unlock.\n"+GATE_JS,'storage/gate injection')
     output=replace_once(output,
@@ -161,12 +193,12 @@ def patch(source):
     output=replace_once(output," case 'choose':s.mode='choice';s.homeAccountOpen=false;render();window.scrollTo(0,0);break;",
        "  case 'choose':v95Lock();s.mode='choice';s.homeAccountOpen=false;render();window.scrollTo(0,0);break;",'choose')
     output=replace_once(output,
-      "if(kind==='requestLogin'){", "if(kind==='v95Enroll'){v95Enroll(form);return;}if(kind==='v95Unlock'){v95Unlock(form);return;}if(kind==='requestLogin'){",'form action')
+      "if(kind==='requestLogin'){", "if(kind==='v95CheckCode'){v95CheckCode(form);return;}if(kind==='v95Enroll'){v95Enroll(form);return;}if(kind==='v95Unlock'){v95Unlock(form);return;}if(kind==='requestLogin'){",'form action')
     output=replace_once(output,
       "  if(el.dataset.action==='importLocalFile'){", "   if(el.dataset.action==='importLocalFile'&&!s.v95Unlocked){alert('請先通過家長安全鎖');return;}\n   if(el.dataset.action==='importLocalFile'){",'import event')
     output=replace_once(output,
       " case 'homeAccount':s.homeAccountOpen=true;render();break;",
-      "  case 'homeAccount':if(!s.v95Unlocked){s.mode='adult';render();break;}s.homeAccountOpen=true;render();break;",'home account')
+      "  case 'v95SendCode':v95SendCode();break;\n  case 'homeAccount':if(!s.v95Unlocked){s.mode='adult';render();break;}s.homeAccountOpen=true;render();break;",'home account')
     # Ensure these are still present.
     for key in ["case 'subject'","function childSubjects()","function adultTools()","function refreshAuth", "v95Envelope", "V9.5 · FAMILY SAFETY PREVIEW"]:
        if key not in output:raise ValueError('Missing essential function '+key)
