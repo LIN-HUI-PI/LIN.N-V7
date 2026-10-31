@@ -1,0 +1,69 @@
+name: NELUUN V9.5 Cloudflare isolated build smoke test (no deployment)
+on:
+  push:
+    branches: [neluun-v9-5-safety]
+    paths:
+      - 'scripts/prepare_v95_worker.mjs'
+      - '.github/workflows/neluun-v95-cloudflare-preflight.yml'
+      - '.github/workflows/apply_neluun_v95.py'
+      - 'public/v95_parent_client.js'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Original and new API tests
+        run: npm test
+      - name: Verify script fails closed without dedicated test D1 ID
+        run: |
+          if node scripts/prepare_v95_worker.mjs; then
+            echo 'ERROR: no D1 ID should mean no build!'
+            exit 1
+          fi
+          test ! -f wrangler.v95.generated.jsonc
+      - name: Generate staging assets and config using synthetic ID only
+        env:
+          NELUUN_V95_TEST_D1_ID: '00000000-0000-4000-8000-000000000095'
+          WORKERS_CI: '1'
+          WORKERS_CI_BRANCH: 'neluun-v9-5-safety'
+        run: |
+          node scripts/prepare_v95_worker.mjs
+          node --check src/v95_parent_api.js
+          node --check public/v95_parent_client.js
+          test -f v95-preview/index.html
+          test -f v95-preview/v95_parent_client.js
+          test -f wrangler.v95.generated.jsonc
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('wrangler.v95.generated.jsonc').read_text())
+          assert d['name']=='neluun-v95-auth-test'
+          assert d['main']=='./src/v95_parent_api.js'
+          assert d['assets']['directory']=='./v95-preview'
+          assert d['d1_databases'][0]['binding']=='DB'
+          assert d['d1_databases'][0]['database_name']=='neluun-v95-auth-isolated-test'
+          assert d['vars']['PARENT_STEP_UP_ENABLED']=='false'
+          assert d['vars']['AI_ENABLED']=='false'
+          assert d['vars']['GLOBAL_AI_DAILY_LIMIT']=='0'
+          assert d['vars']['GLOBAL_AI_MONTHLY_LIMIT']=='0'
+          assert 'V9.5 · FAMILY SAFETY PREVIEW' in Path('v95-preview/index.html').read_text()
+          assert 'V9.4 · SAFE CONNECTION' in Path('public/index.html').read_text()
+          print('Isolated test Worker config and preview are internally consistent')
+          PY
+      - name: Deny incorrect branch even with a valid D1 test ID
+        env:
+          NELUUN_V95_TEST_D1_ID: '00000000-0000-4000-8000-000000000095'
+          WORKERS_CI: '1'
+          WORKERS_CI_BRANCH: 'main'
+        run: |
+          if node scripts/prepare_v95_worker.mjs; then
+            echo 'ERROR: build must refuse wrong branch!'
+            exit 1
+          fi
