@@ -1,16 +1,14 @@
-name: NELUUN V9.5 parent step-up API safety checks
-
+name: NELUUN V9.5 auth API tests
 on:
   push:
-    branches:
-      - neluun-v9-5-safety
+    branches: [neluun-v9-5-safety]
     paths:
-      - 'src/v95_parent_api.js'
-      - 'functions/api/[[path]].js'
-      - 'migrations/0002_parent_access.sql'
-      - 'tests/parent_api.test.js'
-      - '.github/workflows/neluun-v95-auth-api-check.yml'
-      - 'wrangler.v95.test.jsonc'
+      - src/v95_parent_api.js
+      - functions/api/**
+      - migrations/0002_parent_access.sql
+      - tests/parent_api.test.js
+      - .github/workflows/neluun-v95-auth-api-check.yml
+      - wrangler.v95.test.jsonc
   workflow_dispatch:
 
 permissions:
@@ -18,7 +16,6 @@ permissions:
 
 jobs:
   audit:
-    name: Verify API and existing V9 tests without deployment
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -32,27 +29,23 @@ jobs:
           node --check src/v95_parent_api.js
           node --check 'functions/api/[[path]].js'
           node --check tests/parent_api.test.js
-      - name: Check isolated in-memory SQLite migration
+      - name: Check D1 schema using isolated in-memory SQLite
         run: |
           python3 - <<'PY'
           import sqlite3
           from pathlib import Path
-          db=sqlite3.connect(':memory:')
+          db = sqlite3.connect(':memory:')
           db.execute('PRAGMA foreign_keys=ON')
-          db.executescript(Path('migrations/0001_init.sql').read_text(encoding='utf-8'))
-          db.executescript(Path('migrations/0002_parent_access.sql').read_text(encoding='utf-8'))
-          names={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-          assert {'users','sessions','parent_challenges','parent_grants'} <= names
-          print('V9.5 migration checked without live database')
+          db.executescript(Path('migrations/0001_init.sql').read_text())
+          db.executescript(Path('migrations/0002_parent_access.sql').read_text())
+          tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+          assert {'users', 'sessions', 'parent_challenges', 'parent_grants'} <= tables
           PY
-      - name: Run old V9 and new V9.5 automated tests
+      - name: Run original and new tests
         run: npm test
-      - name: Verify fail-closed safety defaults
+      - name: Assert all unsafe features remain off
         run: |
           grep -q '"AI_ENABLED": "false"' wrangler.jsonc
           grep -q 'billingEnabled: false' src/index.js
           grep -q 'childAIEnabled: false' src/index.js
           grep -q '"PARENT_STEP_UP_ENABLED": "false"' wrangler.v95.test.jsonc
-      - name: No Cloudflare deployment
-        run: |
-          echo "Tests only. No deploy."
