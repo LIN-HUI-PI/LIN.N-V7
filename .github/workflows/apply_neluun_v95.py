@@ -59,7 +59,7 @@ function v95QueueSave(){
 }
 function v95Lock(){
  if(v95ServerVerified&&v95ParentClient)v95ParentClient.lock().catch(()=>{});
- v95ServerVerified=false;v95CodeSent=false;
+ v95ServerVerified=false;v95CodeSent=false;v95GrantUntil=0;
  if(s.v95Unlocked)v95QueueSave();
  s.v95Unlocked=false;v95Key=null;
  // Before first lock enrollment retain legacy data in memory for lossless migration.
@@ -67,7 +67,7 @@ function v95Lock(){
  if(v95HasVault()){s.tasks=[];s.notes=[];}
  s.adultMessages=[];s.adultConversations=[];s.adultAiConsent=false;
 }
-let v95ServerVerified=false,v95CodeSent=false,v95ParentClient=null;
+let v95ServerVerified=false,v95CodeSent=false,v95ParentClient=null,v95GrantUntil=0;
 function v95Client(){
  if(!window.NELUUN_ParentStepUp)throw Error('家長驗證程式尚未載入。');
  if(!v95ParentClient)v95ParentClient=new window.NELUUN_ParentStepUp();
@@ -81,16 +81,18 @@ async function v95SendCode(){
 }
 async function v95CheckCode(form){
  try{const code=String(new FormData(form).get('parentCode')||'').trim();
-  await v95Client().verify(code);v95ServerVerified=true;v95Error='';
+  await v95Client().verify(code);v95ServerVerified=true;v95GrantUntil=Date.now()+9*60*1000;v95Error='';
+  setTimeout(()=>{if(v95ServerVerified&&Date.now()>=v95GrantUntil){v95Lock();render()}},9*60*1000);
  }catch(e){v95ServerVerified=false;v95Error=e.message||'驗證失敗';}
  render();
 }
 async function v95RequireServer(){
- if(!v95ServerVerified || !await v95Client().status()){
+ if(!v95ServerVerified || Date.now()>=v95GrantUntil || !await v95Client().status()){
   v95ServerVerified=false;throw Error('請先完成家長電子郵件二次驗證。');
  }
 }
 function v95Gate(){
+ if(v95ServerVerified&&Date.now()>=v95GrantUntil){v95ServerVerified=false;s.v95Unlocked=false;v95Key=null;}
  if(!s.authOnline||!s.auth.authenticated)
   return '<div class="v95-protect"><section class="v95-card"><h1>先登入成人帳號</h1><p>兒童練習不用登入，成人私人區需要先驗證電子郵件。</p>'+accountArea()+'<button type="button" class="v95-secondary" data-action="choose">返回雙入口</button></section></div>';
  if(!v95ServerVerified)
