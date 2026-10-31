@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "neluun-v95-auth-test",
+  "main": "./src/v95_parent_api.js",
+  "compatibility_date": "2026-10-23",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "neluun-v95-auth-isolated-test",
+      "database_id": "REPLACE_ONLY_WITH_NEW_V95_TEST_D1_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "AI_ENABLED": "false",
+    "PARENT_STEP_UP_ENABLED": "false",
+    "GLOBAL_AI_DAILY_LIMIT": "0",
+    "GLOBAL_AI_MONTHLY_LIMIT": "0"
+  }
+}
