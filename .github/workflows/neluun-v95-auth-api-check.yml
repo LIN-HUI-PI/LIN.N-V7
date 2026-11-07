@@ -2,17 +2,6 @@ name: NELUUN V9.5 auth API tests
 on:
   push:
     branches: [neluun-v9-5-safety]
-    paths:
-      - src/v95_parent_api.js
-      - functions/api/**
-      - migrations/0002_parent_access.sql
-      - tests/parent_api.test.js
-      - tests/parent_client.test.js
-      - tests/v95_gate_contract.test.js
-      - .github/workflows/apply_neluun_v95.py
-      - public/v95_parent_client.js
-      - .github/workflows/neluun-v95-auth-api-check.yml
-      - wrangler.v95.test.jsonc
   workflow_dispatch:
 
 permissions:
