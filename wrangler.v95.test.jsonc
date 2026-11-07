@@ -1,3 +1,8 @@
+// V9.5 ISOLATED TEST TEMPLATE — never deploy this file directly.
+// The real test D1 ID is supplied privately through the Cloudflare build variable
+// NELUUN_V95_TEST_D1_ID; scripts/prepare_v95_worker.mjs generates
+// wrangler.v95.generated.jsonc (gitignored) with that ID.
+// Keep this placeholder in Git. Never change V7, V9.4 or production bindings.
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "neluun-v95-auth-test",
