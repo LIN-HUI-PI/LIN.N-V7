@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - neluun-v9-5-safety
-    paths:
-      - '.github/workflows/apply_neluun_v95.py'
-      - '.github/workflows/neluun-v95-preview-build.yml'
   workflow_dispatch:
 
 permissions:
