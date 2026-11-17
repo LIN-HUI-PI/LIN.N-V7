@@ -9,3 +9,5 @@ node_modules/
 wrangler.v95.generated.jsonc
 v95-preview/
 .DS_Store
+wrangler.v95.kids.generated.jsonc
+v95-kids/
