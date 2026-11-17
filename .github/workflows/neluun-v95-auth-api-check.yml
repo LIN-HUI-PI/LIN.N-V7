@@ -20,6 +20,10 @@ jobs:
         run: |
           node --check src/index.js
           node --check src/v95_parent_api.js
+          node --check src/v95_family_api.js
+          node --check src/v95_family_shared.js
+          node --check src/v95_kids_api.js
+          node --check scripts/prepare_v95_worker.mjs
           node --check 'functions/api/[[path]].js'
           node --check tests/parent_api.test.js
       - name: Check D1 schema using isolated in-memory SQLite
@@ -31,8 +35,10 @@ jobs:
           db.execute('PRAGMA foreign_keys=ON')
           db.executescript(Path('migrations/0001_init.sql').read_text())
           db.executescript(Path('migrations/0002_parent_access.sql').read_text())
+          db.executescript(Path('migrations/0003_family_children.sql').read_text())
           tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-          assert {'users', 'sessions', 'parent_challenges', 'parent_grants'} <= tables
+          assert {'users', 'sessions', 'parent_challenges', 'parent_grants',
+                  'children', 'child_entry_codes', 'child_sessions'} <= tables
           PY
       - name: Run original and new tests
         run: npm test
@@ -42,3 +48,5 @@ jobs:
           grep -q 'billingEnabled: false' src/index.js
           grep -q 'childAIEnabled: false' src/index.js
           grep -q '"PARENT_STEP_UP_ENABLED": "false"' wrangler.v95.test.jsonc
+          grep -q '"AI_ENABLED": "false"' wrangler.v95.kids.test.jsonc
+          grep -q 'child_ai_disabled' src/v95_kids_api.js

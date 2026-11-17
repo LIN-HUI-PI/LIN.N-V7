@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
+<title>NELUUN｜家長管理（孩子帳號與陪同）</title>
+<style>
+:root{font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;color:#e8d5b4;background:#100e0d}
+*{box-sizing:border-box}body{margin:0}
+.wrap{max-width:520px;margin:auto;padding:max(24px,env(safe-area-inset-top)) 18px 60px;min-height:100vh}
+h1{font-size:26px;text-align:center;letter-spacing:.06em;margin:18px 0 6px}
+h2{font-size:20px;margin:0 0 8px}p{line-height:1.7;color:#d6c3a7;margin:8px 0}
+.panel{background:#241d17;border:1px solid #a88652;border-radius:20px;padding:20px;margin:18px 0}
+button{display:block;width:100%;padding:15px;margin:10px 0;background:#e8c58e;color:#201710;border:0;border-radius:14px;font:inherit;font-weight:750;cursor:pointer}
+button.secondary{background:transparent;border:1px solid #a88652;color:#e8d5b4}
+button.danger{background:transparent;border:1px solid #c26a6a;color:#f0b3b3}
+button:disabled{opacity:.55}
+input,select{width:100%;padding:13px;margin:8px 0;border-radius:12px;border:1px solid #a88652;background:#17120e;color:#f3e5cc;font:inherit}
+label{display:block;font-size:14px;color:#c6b5a0;margin-top:8px}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.err{background:#4b1b1b;border:1px solid #d38888;border-radius:12px;padding:12px;margin:12px 0}
+.ok{background:#1e3322;border:1px solid #6faa7c;border-radius:12px;padding:12px;margin:12px 0}
+.hidden{display:none!important}.note{font-size:13px;color:#c6b5a0}
+.child{border-top:1px solid #4a3d2c;padding-top:14px;margin-top:14px}
+.name{font-size:20px;font-weight:750}.badge{font-size:13px;color:#9be0ab}
+.code{font:800 40px/1.2 ui-monospace,Menlo,monospace;letter-spacing:.14em;text-align:center;background:#17120e;border:2px dashed #e8c58e;border-radius:16px;padding:18px 8px;margin:12px 0;color:#fff3d8}
+a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #fff;outline-offset:2px}
+</style></head>
+<body><main class="wrap">
+<h1>家長管理</h1>
+<p class="note" style="text-align:center">孩子帳號、陪同授權。孩子用另一個網址進入，不能進到這裡。</p>
+<div id="msg" class="err hidden" role="alert"></div>
+
+<section id="needLogin" class="panel hidden">
+  <h2>請先登入</h2>
+  <p>請先到成人入口完成電子郵件登入，再回到這一頁。</p>
+  <a href="./">前往成人登入</a>
+</section>
+
+<section id="needStepUp" class="panel hidden">
+  <h2>成人區二次驗證</h2>
+  <p>我們會寄 6 位數驗證碼到你已登入的信箱，10 分鐘內有效。這只能證明你控制這個信箱，不等於法定監護人身分驗證。</p>
+  <button id="sendCode" type="button">寄送六位數驗證碼</button>
+  <div id="codeBox" class="hidden">
+    <label for="otp">輸入信箱收到的 6 位數</label>
+    <input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+    <button id="verify" type="button">驗證</button>
+  </div>
+</section>
+
+<section id="main" class="hidden">
+  <div id="declBox" class="panel hidden">
+    <h2>監護人聲明</h2>
+    <p>建立孩子檔案前，請確認你是這位孩子的父母或法定監護人，並同意由你決定孩子何時使用、全程陪同。</p>
+    <label style="display:flex;gap:10px;align-items:flex-start;color:#e8d5b4;font-size:16px">
+      <input id="agree1" type="checkbox" style="width:22px;margin-top:4px">
+      <span>我是孩子的父母或法定監護人。</span></label>
+    <label style="display:flex;gap:10px;align-items:flex-start;color:#e8d5b4;font-size:16px">
+      <input id="agree2" type="checkbox" style="width:22px;margin-top:4px">
+      <span>每次孩子使用時，我會在旁陪同。</span></label>
+    <button id="declare" type="button">送出聲明</button>
+    <p class="note">這是你自行聲明，系統不會驗證你的法定身分。</p>
+  </div>
+
+  <div id="kidsBox" class="hidden">
+    <div class="panel">
+      <h2>孩子入口網址</h2>
+      <p id="kidsUrl" style="word-break:break-all"></p>
+      <p class="note">把這個網址放在孩子的裝置上。孩子要輸入你產生的代碼才能進入。</p>
+    </div>
+    <div class="panel">
+      <h2>我的孩子</h2>
+      <div id="list"></div>
+      <p id="empty" class="note">還沒有孩子檔案。</p>
+    </div>
+    <div class="panel">
+      <h2>新增孩子</h2>
+      <label for="nick">暱稱（1 到 12 字，請不要用真實姓名）</label>
+      <input id="nick" maxlength="12" autocomplete="off">
+      <label for="avatar">頭像</label>
+      <select id="avatar">
+        <option value="cat">🐱 貓</option><option value="rabbit">🐰 兔</option>
+        <option value="bear">🐻 熊</option><option value="fox">🦊 狐狸</option>
+        <option value="panda">🐼 熊貓</option><option value="owl">🦉 貓頭鷹</option>
+      </select>
+      <button id="add" type="button">新增孩子檔案</button>
+    </div>
+    <button id="lock" class="secondary" type="button">鎖定成人區</button>
+  </div>
+</section>
+</main>
+<script>
+(function(){
+  var ICON={cat:'🐱',rabbit:'🐰',bear:'🐻',fox:'🦊',panda:'🐼',owl:'🦉'};
+  var $=function(id){return document.getElementById(id)};
+  var codeTimers=[];
+  function show(id,on){$(id).classList.toggle('hidden',!on)}
+  function msg(t){var e=$('msg');e.textContent=t||'';show('msg',!!t)}
+  async function api(path,method,body){
+    var o={method:method||'GET',credentials:'same-origin',cache:'no-store',headers:{accept:'application/json'}};
+    if(o.method!=='GET'){o.headers['content-type']='application/json';o.body=JSON.stringify(body||{})}
+    var r,d;
+    try{r=await fetch(path,o);d=await r.json()}catch(e){throw Error('連線失敗，請稍後再試。')}
+    if(!r.ok||d.ok!==true){var er=new Error(d.message||'操作未完成。');er.code=d.error;er.status=r.status;throw er}
+    return d;
+  }
+  function kidsUrl(){
+    var h=location.hostname;
+    if(/\.workers\.dev$/.test(h))return 'https://neluun-v95-kids-test.'+h.split('.').slice(1).join('.');
+    return '（請填入孩童站的網址）';
+  }
+  async function boot(){
+    msg('');['needLogin','needStepUp','main'].forEach(function(x){show(x,false)});
+    var me;
+    try{me=await api('/api/me')}catch(e){msg(e.message);return}
+    if(!me.authenticated){show('needLogin',true);return}
+    var st;
+    try{st=await api('/api/parent/status')}
+    catch(e){
+      if(e.code==='not_configured'){msg('家長二次驗證尚未啟用（伺服器設定）。');return}
+      msg(e.message);return;
+    }
+    if(!st.adultAccess){show('needStepUp',true);return}
+    show('main',true);await refresh();
+  }
+  async function refresh(){
+    try{
+      var d=await api('/api/family/children');
+      show('declBox',!d.declaration);show('kidsBox',d.declaration);
+      $('kidsUrl').textContent=kidsUrl();
+      render(d.children||[]);
+    }catch(e){
+      if(e.code==='adult_locked'||e.code==='sign_in'){boot();return}
+      msg(e.message);
+    }
+  }
+  function render(children){
+    codeTimers.forEach(clearInterval);codeTimers=[];
+    var list=$('list');list.textContent='';
+    show('empty',children.length===0);
+    children.forEach(function(c){
+      var box=document.createElement('div');box.className='child';
+      var name=document.createElement('div');name.className='name';
+      name.textContent=(ICON[c.avatar]||'🙂')+' '+c.nickname;box.appendChild(name);
+      if(c.activeFor>0){
+        var b=document.createElement('div');b.className='badge';
+        b.textContent='使用中，約剩 '+Math.ceil(c.activeFor/60)+' 分鐘';box.appendChild(b);
+      }
+      var sel=document.createElement('select');sel.setAttribute('aria-label','陪同時間');
+      [30,45,60].forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent='陪同 '+m+' 分鐘';sel.appendChild(o)});
+      box.appendChild(sel);
+      var start=document.createElement('button');start.type='button';start.textContent='開始陪同（產生代碼）';
+      var codeArea=document.createElement('div');
+      start.onclick=async function(){
+        msg('');start.disabled=true;
+        try{
+          var r=await api('/api/family/companion/start','POST',{childId:c.id,minutes:Number(sel.value)});
+          showCode(codeArea,r);
+        }catch(e){msg(e.message)}
+        start.disabled=false;
+      };
+      box.appendChild(start);box.appendChild(codeArea);
+      var end=document.createElement('button');end.type='button';end.className='secondary';end.textContent='結束陪同，立刻登出孩子';
+      end.onclick=async function(){try{await api('/api/family/companion/end','POST',{childId:c.id});codeArea.textContent='';refresh()}catch(e){msg(e.message)}};
+      box.appendChild(end);
+      var rm=document.createElement('button');rm.type='button';rm.className='danger';rm.textContent='刪除這個孩子檔案';
+      rm.onclick=async function(){
+        if(!confirm('確定刪除「'+c.nickname+'」？孩子會立刻被登出，且無法復原。'))return;
+        try{await api('/api/family/children/remove','POST',{childId:c.id});refresh()}catch(e){msg(e.message)}
+      };
+      box.appendChild(rm);list.appendChild(box);
+    });
+  }
+  function showCode(area,r){
+    area.textContent='';
+    var ok=document.createElement('div');ok.className='ok';
+    var t=document.createElement('div');t.className='code';
+    t.textContent=r.code.slice(0,4)+' '+r.code.slice(4);
+    var p=document.createElement('p');p.className='note';
+    var left=r.codeExpiresIn;
+    function paint(){p.textContent='請陪在孩子身旁輸入。代碼只能用一次，'+Math.floor(left/60)+':'+String(left%60).padStart(2,'0')+' 後失效；孩子可使用 '+r.sessionMinutes+' 分鐘。'}
+    paint();
+    var hide=document.createElement('button');hide.type='button';hide.className='secondary';hide.textContent='隱藏代碼';
+    hide.onclick=function(){area.textContent=''};
+    ok.appendChild(t);ok.appendChild(p);ok.appendChild(hide);area.appendChild(ok);
+    var iv=setInterval(function(){left--;if(left<=0){clearInterval(iv);area.textContent='';return}paint()},1000);
+    codeTimers.push(iv);
+  }
+  $('sendCode').onclick=async function(){
+    msg('');$('sendCode').disabled=true;
+    try{await api('/api/parent/challenge','POST',{});show('codeBox',true);$('otp').focus()}
+    catch(e){msg(e.message)}
+    $('sendCode').disabled=false;
+  };
+  $('verify').onclick=async function(){
+    msg('');var v=$('otp').value.trim();
+    if(!/^[0-9]{6}$/.test(v)){msg('請輸入六位數驗證碼。');return}
+    try{await api('/api/parent/verify','POST',{code:v});$('otp').value='';await boot()}
+    catch(e){msg(e.message)}
+  };
+  $('declare').onclick=async function(){
+    msg('');
+    if(!$('agree1').checked||!$('agree2').checked){msg('請兩項都勾選。');return}
+    try{await api('/api/guardian/declare','POST',{agree:true,confirmGuardian:true});await refresh()}
+    catch(e){msg(e.message)}
+  };
+  $('add').onclick=async function(){
+    msg('');
+    try{
+      await api('/api/family/children/create','POST',{nickname:$('nick').value,avatar:$('avatar').value});
+      $('nick').value='';await refresh();
+    }catch(e){msg(e.message)}
+  };
+  $('lock').onclick=async function(){try{await api('/api/parent/lock','POST',{})}catch(e){}boot()};
+  boot();
+})();
+</script></body></html>

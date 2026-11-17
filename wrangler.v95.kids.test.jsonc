@@ -1,0 +1,20 @@
+// V9.5 CHILD SITE TEST TEMPLATE — never deploy this file directly.
+// scripts/prepare_v95_worker.mjs kids generates wrangler.v95.kids.generated.jsonc (gitignored)
+// using the Cloudflare build variable NELUUN_V95_TEST_D1_ID. It shares the SAME isolated test D1
+// as the adult Worker, but has no adult login, email, AI or payment code.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "neluun-v95-kids-test",
+  "main": "./src/v95_kids_api.js",
+  "compatibility_date": "2026-10-23",
+  "assets": { "directory": "./kids-public", "binding": "ASSETS", "run_worker_first": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "neluun-v95-auth-isolated-test",
+      "database_id": "REPLACE_ONLY_WITH_NEW_V95_TEST_D1_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": { "AI_ENABLED": "false" }
+}

@@ -1,9 +1,19 @@
 /**
  * NELUUN V9.5 isolated Cloudflare Worker build. No production deployment.
- * Cloudflare Workers Builds:
- *   Build command: node scripts/prepare_v95_worker.mjs
+ * Two Workers are built from this repository, sharing ONE test D1 database:
+ *
+ * ADULT Worker `neluun-v95-auth-test`
+ *   Build command:  node scripts/prepare_v95_worker.mjs
  *   Deploy command: npx wrangler deploy --config wrangler.v95.generated.jsonc
- *   Build variable: NELUUN_V95_TEST_D1_ID (ID of dedicated test D1 only)
+ * CHILD Worker `neluun-v95-kids-test`
+ *   Build command:  node scripts/prepare_v95_worker.mjs kids
+ *   Deploy command: npx wrangler deploy --config wrangler.v95.kids.generated.jsonc
+ *
+ * Build variables (not secrets):
+ *   NELUUN_V95_TEST_D1_ID        ID of the dedicated test D1 only (both Workers)
+ *   NELUUN_V95_PARENT_STEP_UP    "true" turns on adult step-up + family routes (adult Worker)
+ * The vars written below REPLACE dashboard variables on every deploy, so the switch must be
+ * set as a build variable here, not only in the Worker's Settings page.
  * Never put keys or real D1 IDs into git.
  */
 import {mkdtempSync,cpSync,readFileSync,writeFileSync,rmSync,existsSync} from 'node:fs';
@@ -11,7 +21,11 @@ import {execFileSync} from 'node:child_process';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 
-const TEST_WORKER='neluun-v95-auth-test';
+const target=(process.argv[2]||'adult').toLowerCase();
+if(!['adult','kids'].includes(target))throw Error('Unknown build target. Use no argument or "kids".');
+const KIDS=target==='kids';
+const TEST_WORKER=KIDS?'neluun-v95-kids-test':'neluun-v95-auth-test';
+const stepUp=process.env.NELUUN_V95_PARENT_STEP_UP==='true'?'true':'false';
 const TEST_DB='neluun-v95-auth-isolated-test';
 const BRANCH='neluun-v9-5-safety';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -19,8 +33,30 @@ const id=(process.env.NELUUN_V95_TEST_D1_ID||'').trim();
 if(!uuid.test(id))throw Error('Missing dedicated V9.5 TEST D1 ID build variable. Nothing deployed.');
 if(process.env.WORKERS_CI && process.env.WORKERS_CI_BRANCH!==BRANCH)
  throw Error('Unsafe Git branch for staging deploy. Nothing deployed.');
+if(KIDS){
+  const dist='v95-kids';
+  for(const f of ['kids-public/index.html','kids-public/learn.html','src/v95_kids_api.js','src/v95_family_shared.js'])
+    if(!existsSync(f))throw Error('Incomplete child site source: '+f+'. Nothing deployed.');
+  const learn=readFileSync('kids-public/learn.html','utf8');
+  if(!learn.includes('/api/kids/me')||!learn.includes('kidBar'))
+    throw Error('Child learning page is missing its session guard. Nothing deployed.');
+  rmSync(dist,{recursive:true,force:true});
+  cpSync('kids-public',dist,{recursive:true,force:true});
+  const config={
+    name:TEST_WORKER,
+    main:'./src/v95_kids_api.js',
+    compatibility_date:'2026-10-23',
+    // Worker runs first for EVERY request so /learn is only served to a live child session.
+    assets:{directory:'./'+dist,binding:'ASSETS',run_worker_first:true},
+    d1_databases:[{binding:'DB',database_name:TEST_DB,database_id:id,migrations_dir:'migrations'}],
+    vars:{AI_ENABLED:'false'}
+  };
+  writeFileSync('wrangler.v95.kids.generated.jsonc',JSON.stringify(config,null,2)+'\n');
+  console.log('Prepared isolated V9.5 CHILD Worker assets and config. No deployment performed.');
+  process.exit(0);
+}
 const source='public/index.html',patch='.github/workflows/apply_neluun_v95.py';
-if(!existsSync(source)||!existsSync(patch)||!existsSync('public/v95_parent_client.js'))
+if(!existsSync(source)||!existsSync(patch)||!existsSync('public/v95_parent_client.js')||!existsSync('public/family.html'))
  throw Error('Incomplete V9.5 source. Nothing deployed.');
 const dist='v95-preview';
 const temp=mkdtempSync(join(tmpdir(),'neluun-v95-build-'));
@@ -50,10 +86,10 @@ try{
     compatibility_date:'2026-10-23',
     assets:{directory:'./v95-preview',binding:'ASSETS',run_worker_first:['/api/*']},
     d1_databases:[{binding:'DB',database_name:TEST_DB,database_id:id,migrations_dir:'migrations'}],
-    vars:{AI_ENABLED:'false',PARENT_STEP_UP_ENABLED:'false',GLOBAL_AI_DAILY_LIMIT:'0',GLOBAL_AI_MONTHLY_LIMIT:'0'}
+    vars:{AI_ENABLED:'false',PARENT_STEP_UP_ENABLED:stepUp,GLOBAL_AI_DAILY_LIMIT:'0',GLOBAL_AI_MONTHLY_LIMIT:'0'}
   };
   writeFileSync('wrangler.v95.generated.jsonc',JSON.stringify(config,null,2)+'\n');
-  console.log('Prepared isolated V9.5 Worker assets and config. No deployment performed.');
+  console.log('Prepared isolated V9.5 ADULT Worker assets and config (PARENT_STEP_UP_ENABLED='+stepUp+'). No deployment performed.');
 }catch(e){
   try{rmSync('wrangler.v95.generated.jsonc',{force:true})}catch{}
   throw e;

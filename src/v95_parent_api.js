@@ -4,6 +4,7 @@
  * This is an isolated candidate; no child AI, billing or cloud child data API.
  */
 import base from './index.js';
+import { FAMILY_ROUTES, handleFamily, revokeChildAccess } from './v95_family_api.js';
 
 const COOKIE = 'neluun_sid';
 const OTP_TTL = 600;
@@ -164,9 +165,13 @@ export default {
     const logout = pathname === '/api/auth/logout';
     const sensitiveOld = pathname === '/api/chat' ||
       pathname === '/api/guardian/declare' || pathname === '/api/guardian/withdraw';
-    if (!parent && !privateStatus && !logout && !sensitiveOld) return base.fetch(req, env);
+    const family = pathname.startsWith('/api/family/');
+    // The adult site never serves the child API: children use their own site.
+    if (pathname.startsWith('/api/kids/')) return deny(404, 'unknown_endpoint', '這裡沒有孩童入口。');
+    if (!parent && !privateStatus && !logout && !sensitiveOld && !family) return base.fetch(req, env);
     if (parent && !paths.has(pathname)) return deny(404, 'unknown_endpoint', '安全驗證路徑不存在。');
-    const isGet = pathname === '/api/parent/status' || privateStatus;
+    if (family && !Object.hasOwn(FAMILY_ROUTES, pathname)) return deny(404, 'unknown_endpoint', '找不到 API。');
+    const isGet = family ? FAMILY_ROUTES[pathname] === 'GET' : (pathname === '/api/parent/status' || privateStatus);
     if (req.method !== (isGet ? 'GET' : 'POST')) return deny(405, 'method_not_allowed', '方法不支援。');
     if (req.method === 'POST' && !sameOrigin(req)) return deny(403, 'origin_required', '來源驗證失敗。');
     // Logout must remain operational even when step-up is unconfigured.
@@ -186,10 +191,19 @@ export default {
     try {
       const user = await identity(req, env);
       if (!user) return deny(401, 'sign_in', '請先登入會員。');
+      if (family) {
+        if (!(await access(env, user)).adultAccess)
+          return deny(403, 'adult_locked', '需要家長二次驗證。');
+        return await handleFamily(req, env, user, pathname);
+      }
       if (sensitiveOld) {
         if (!(await access(env, user)).adultAccess)
           return deny(403, 'adult_locked', '需要家長二次驗證。');
-        return base.fetch(req, env);
+        const result = await base.fetch(req, env);
+        // Withdrawing the guardian declaration ends every child session at once.
+        if (pathname === '/api/guardian/withdraw' && result.ok)
+          await revokeChildAccess(env, { guardianId: user.id });
+        return result;
       }
       if (pathname === '/api/parent/status') return respond(await access(env, user));
       if (pathname === '/api/parent/challenge') return challenge(req, env, user);
