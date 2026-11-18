@@ -4,6 +4,7 @@
  * This is an isolated candidate; no child AI, billing or cloud child data API.
  */
 import base from './index.js';
+import { pepperFingerprint } from './v95_family_shared.js';
 import { FAMILY_ROUTES, handleFamily, revokeChildAccess } from './v95_family_api.js';
 import { newSecret, base32, matchStep, sealSecret, openSecret, otpauthUri,
   recoveryCode, RECOVERY_RE } from './v95_totp.js';
@@ -261,7 +262,7 @@ export async function requireAdultStepUp(req, env) {
 const paths = new Set(['/api/parent/status', '/api/parent/challenge',
   '/api/parent/verify', '/api/parent/lock', '/api/parent/totp/status',
   '/api/parent/totp/begin', '/api/parent/totp/confirm', '/api/parent/totp/verify',
-  '/api/parent/totp/remove']);
+  '/api/parent/totp/remove', '/api/parent/pepper-fp']);
 export default {
   async fetch(req, env) {
     const pathname = new URL(req.url).pathname;
@@ -276,7 +277,7 @@ export default {
     if (!parent && !privateStatus && !logout && !sensitiveOld && !family) return base.fetch(req, env);
     if (parent && !paths.has(pathname)) return deny(404, 'unknown_endpoint', '安全驗證路徑不存在。');
     if (family && !Object.hasOwn(FAMILY_ROUTES, pathname)) return deny(404, 'unknown_endpoint', '找不到 API。');
-    const isGet = family ? FAMILY_ROUTES[pathname] === 'GET' : (pathname === '/api/parent/status' || pathname === '/api/parent/totp/status' || privateStatus);
+    const isGet = family ? FAMILY_ROUTES[pathname] === 'GET' : (pathname === '/api/parent/status' || pathname === '/api/parent/totp/status' || pathname === '/api/parent/pepper-fp' || privateStatus);
     if (req.method !== (isGet ? 'GET' : 'POST')) return deny(405, 'method_not_allowed', '方法不支援。');
     if (req.method === 'POST' && !sameOrigin(req)) return deny(403, 'origin_required', '來源驗證失敗。');
     // Logout must remain operational even when step-up is unconfigured.
@@ -317,6 +318,7 @@ export default {
         const strict = new URL(req.url).searchParams.get('strict') === '1';
         return respond(strict ? { ...(await access(env, user)), stepUpRequired: true } : await accessOrOpen(env, user));
       }
+      if (pathname === '/api/parent/pepper-fp') return respond({ ok: true, pepper: await pepperFingerprint(env) });
       if (pathname === '/api/parent/totp/status') return respond({ ok: true, enrolled: await totpEnrolled(env, user.id) });
       if (pathname === '/api/parent/totp/begin') return totpBegin(env, user);
       if (pathname === '/api/parent/totp/confirm') return totpConfirm(req, env, user);

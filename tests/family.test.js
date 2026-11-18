@@ -379,3 +379,26 @@ test('No step-up for a signed-in account without a guardian declaration, but fam
   assert.equal((await P(env, '/api/parent/status?strict=1')).body.adultAccess, false);
   assert.equal((await A(env, '/api/family/children')).status, 403);
 });
+
+test('Pepper fingerprint: same secret matches across Workers, whitespace is ignored, secret never exposed', async () => {
+  const { env } = await setup();
+  const a = await json(await A(env, '/api/parent/pepper-fp'));
+  const k = await json(await K(env, '/api/kids/health'));
+  assert.equal(a.status, 200); assert.equal(k.status, 200);
+  assert.equal(a.body.pepper, k.body.pepper); assert.match(a.body.pepper, /^[0-9a-f]{6}$/);
+  assert.ok(!JSON.stringify(a.body).includes(ENV.OTP_PEPPER));
+  const padded = { ...env, OTP_PEPPER: ' \n' + ENV.OTP_PEPPER + '\n ' };
+  assert.equal((await json(await K(padded, '/api/kids/health'))).body.pepper, a.body.pepper);
+  const other = { ...env, OTP_PEPPER: 'a-different-secret' };
+  assert.notEqual((await json(await K(other, '/api/kids/health'))).body.pepper, a.body.pepper);
+  assert.equal((await A(env, '/api/parent/pepper-fp', { cookie: undefined })).status, 401);
+});
+
+test('Child entry code still works when one Worker has a padded OTP_PEPPER', async () => {
+  const { env, db } = await setup(); await unlock(db);
+  const id = await makeChild(env);
+  const s = await json(await A(env, '/api/family/companion/start', { method: 'POST', body: { childId: id, minutes: 30 } }));
+  const kidsEnv = { ...env, OTP_PEPPER: env.OTP_PEPPER + '\n' };
+  const r = await json(await K(kidsEnv, '/api/kids/enter', { method: 'POST', body: { code: s.body.code } }));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+});

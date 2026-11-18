@@ -8,7 +8,7 @@
  */
 import {
   ACTIVE_DECLARATION, KID_COOKIE, childTokenHash, deny, entryCodeHash, limit, now,
-  randomHex, readJson, respond, sameOrigin
+  pepperFingerprint, randomHex, readJson, respond, sameOrigin
 } from './v95_family_shared.js';
 
 const ready = env => !!(env.DB && typeof env.DB.prepare === 'function' &&
@@ -104,6 +104,7 @@ export default {
       if (path.startsWith('/api/')) {
         if (!ready(env)) return deny(503, 'not_configured', '孩童入口尚未啟用。');
         if (path === '/api/kids/me' && req.method === 'GET') return await me(req, env);
+        if (path === '/api/kids/health' && req.method === 'GET') return respond({ ok: true, pepper: await pepperFingerprint(env) });
         if (path === '/api/kids/enter' && req.method === 'POST') return await enter(req, env);
         if (path === '/api/kids/logout' && req.method === 'POST') return await logout(req, env);
         if (path === '/api/kids/chat')

@@ -65,7 +65,11 @@ export async function limit(env, label, max, seconds) {
   return !!row;
 }
 
-export const entryCodeHash = (env, code) => sha(env.OTP_PEPPER + ':child-entry:' + code);
+// OTP_PEPPER is shared by the adult and child Workers; surrounding whitespace from a paste must not matter.
+export const pepperOf = env => String(env.OTP_PEPPER ?? '').trim();
+export const entryCodeHash = (env, code) => sha(pepperOf(env) + ':child-entry:' + code);
+/** Short public fingerprint so both Workers can be compared without revealing the secret. */
+export const pepperFingerprint = async env => (await sha('neluun-fp:' + pepperOf(env))).slice(0, 6);
 export const childTokenHash = (env, token) => sha(env.SESSION_PEPPER + ':child-session:' + token);
 
 /** Nickname: 1-12 letters/digits/space/_/-, no '@' so it can never be an email address. */
