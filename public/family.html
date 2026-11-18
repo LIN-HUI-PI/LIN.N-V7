@@ -19,6 +19,8 @@ label{display:block;font-size:14px;color:#c6b5a0;margin-top:8px}
 .row{display:flex;gap:10px}.row>*{flex:1}
 .err{background:#4b1b1b;border:1px solid #d38888;border-radius:12px;padding:12px;margin:12px 0}
 .ok{background:#1e3322;border:1px solid #6faa7c;border-radius:12px;padding:12px;margin:12px 0}
+.secret{font:700 18px/1.5 ui-monospace,Menlo,monospace;word-break:break-all;background:#17120e;border:1px dashed #a88652;border-radius:12px;padding:12px;margin:10px 0;user-select:all}
+.codes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.codes div{font:700 16px ui-monospace,Menlo,monospace;background:#17120e;border:1px solid #6faa7c;border-radius:10px;padding:10px;text-align:center;user-select:all}
 .hidden{display:none!important}.note{font-size:13px;color:#c6b5a0}
 .child{border-top:1px solid #4a3d2c;padding-top:14px;margin-top:14px}
 .name{font-size:20px;font-weight:750}.badge{font-size:13px;color:#9be0ab}
@@ -47,7 +49,34 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
   </div>
 </section>
 
+<section id="needTotp" class="panel hidden">
+  <h2>成人區驗證（驗證器 App）</h2>
+  <p>請打開手機上的驗證器 App，輸入 NELUUN 顯示的 6 位數。若手機遺失，可改輸入設定時保存的備用碼（格式 XXXXX-XXXXX）。</p>
+  <label for="totpCode">6 位數驗證碼或備用碼</label>
+  <input id="totpCode" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="11">
+  <button id="totpVerify" type="button">驗證</button>
+</section>
+
 <section id="main" class="hidden">
+  <div id="totpBox" class="panel">
+    <h2>驗證器 App（建議）</h2>
+    <p id="totpState">每次管理孩子時，用手機驗證器 App 的 6 位數確認，免費、不需簡訊。</p>
+    <div id="totpSetup" class="hidden">
+      <p>1. 在手機安裝任一驗證器 App（例如 Google Authenticator）。<br>2. 按下方「在驗證器開啟」，或手動輸入這組金鑰：</p>
+      <div id="totpSecret" class="secret"></div>
+      <a id="totpLink" href="#">在驗證器開啟</a>
+      <label for="totpConfirmCode">輸入 App 顯示的 6 位數完成設定</label>
+      <input id="totpConfirmCode" inputmode="numeric" autocomplete="off" maxlength="6">
+      <button id="totpConfirm" type="button">完成設定</button>
+    </div>
+    <div id="totpCodes" class="hidden">
+      <div class="ok">備用碼只會顯示這一次，每個只能用一次。請抄寫或截圖保存；手機遺失時需要它。</div>
+      <div id="totpCodeList" class="codes"></div>
+      <button id="totpSaved" type="button" class="secondary">我已保存備用碼</button>
+    </div>
+    <button id="totpBegin" type="button">設定驗證器 App</button>
+    <button id="totpRemove" type="button" class="danger hidden">移除驗證器</button>
+  </div>
   <div id="declBox" class="panel hidden">
     <h2>監護人聲明</h2>
     <p>建立孩子檔案前，請確認你是這位孩子的父母或法定監護人，並同意由你決定孩子何時使用、全程陪同。</p>
@@ -109,18 +138,22 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
     return '（請填入孩童站的網址）';
   }
   async function boot(){
-    msg('');['needLogin','needStepUp','main'].forEach(function(x){show(x,false)});
+    msg('');['needLogin','needStepUp','needTotp','main'].forEach(function(x){show(x,false)});
     var me;
     try{me=await api('/api/me')}catch(e){msg(e.message);return}
     if(!me.authenticated){show('needLogin',true);return}
     var st;
-    try{st=await api('/api/parent/status')}
+    try{st=await api('/api/parent/status?strict=1')}
     catch(e){
       if(e.code==='not_configured'){msg('家長二次驗證尚未啟用（伺服器設定）。');return}
       msg(e.message);return;
     }
-    if(!st.adultAccess){show('needStepUp',true);return}
-    show('main',true);await refresh();
+    if(!st.adultAccess){
+      var ts=null;try{ts=await api('/api/parent/totp/status')}catch(e){}
+      if(ts&&ts.enrolled){show('needTotp',true);$('totpCode').focus()}else show('needStepUp',true);
+      return;
+    }
+    show('main',true);await totpPaint();await refresh();
   }
   async function refresh(){
     try{
@@ -185,6 +218,50 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
     var iv=setInterval(function(){left--;if(left<=0){clearInterval(iv);area.textContent='';return}paint()},1000);
     codeTimers.push(iv);
   }
+  async function totpPaint(){
+    var enrolled=false;
+    try{enrolled=(await api('/api/parent/totp/status')).enrolled}catch(e){}
+    $('totpState').textContent=enrolled?'已啟用：之後每次登入管理頁，都用驗證器 App 的 6 位數確認。':'每次管理孩子時，用手機驗證器 App 的 6 位數確認，免費、不需簡訊。';
+    show('totpBegin',!enrolled);show('totpRemove',enrolled);
+    if(enrolled){show('totpSetup',false)}
+  }
+  $('totpBegin').onclick=async function(){
+    msg('');
+    try{
+      var r=await api('/api/parent/totp/begin','POST',{});
+      $('totpSecret').textContent=r.secret.replace(/(.{4})/g,'$1 ').trim();
+      $('totpLink').setAttribute('href',r.uri);
+      show('totpSetup',true);show('totpBegin',false);$('totpConfirmCode').focus();
+    }catch(e){
+      if(e.code==='adult_locked'){boot();return}
+      msg(e.message);
+    }
+  };
+  $('totpConfirm').onclick=async function(){
+    msg('');var v=$('totpConfirmCode').value.trim();
+    if(!/^[0-9]{6}$/.test(v)){msg('請輸入驗證器上的六位數。');return}
+    try{
+      var r=await api('/api/parent/totp/confirm','POST',{code:v});
+      $('totpConfirmCode').value='';$('totpSecret').textContent='';show('totpSetup',false);
+      var list=$('totpCodeList');list.textContent='';
+      r.recoveryCodes.forEach(function(c){var d=document.createElement('div');d.textContent=c;list.appendChild(d)});
+      show('totpCodes',true);
+    }catch(e){msg(e.message)}
+  };
+  $('totpSaved').onclick=function(){$('totpCodeList').textContent='';show('totpCodes',false);totpPaint()};
+  $('totpRemove').onclick=async function(){
+    if(!confirm('確定移除驗證器？之後會改回信箱驗證碼。'))return;
+    try{await api('/api/parent/totp/remove','POST',{});await totpPaint()}catch(e){msg(e.message)}
+  };
+  $('totpVerify').onclick=async function(){
+    msg('');var v=$('totpCode').value.trim().toUpperCase();
+    if(!/^([0-9]{6}|[A-HJ-KM-NP-Z2-9]{5}-[A-HJ-KM-NP-Z2-9]{5})$/.test(v)){msg('請輸入六位數或備用碼（XXXXX-XXXXX）。');return}
+    try{
+      var r=await api('/api/parent/totp/verify','POST',{code:v});$('totpCode').value='';
+      await boot();
+      if(typeof r.recoveryLeft==='number'&&r.recoveryLeft<=2)msg('備用碼剩 '+r.recoveryLeft+' 組，建議重新設定驗證器以產生新備用碼。');
+    }catch(e){msg(e.message)}
+  };
   $('sendCode').onclick=async function(){
     msg('');$('sendCode').disabled=true;
     try{await api('/api/parent/challenge','POST',{});show('codeBox',true);$('otp').focus()}

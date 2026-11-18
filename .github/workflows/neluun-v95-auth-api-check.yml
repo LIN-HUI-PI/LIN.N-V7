@@ -23,6 +23,7 @@ jobs:
           node --check src/v95_family_api.js
           node --check src/v95_family_shared.js
           node --check src/v95_kids_api.js
+          node --check src/v95_totp.js
           node --check scripts/prepare_v95_worker.mjs
           node --check 'functions/api/[[path]].js'
           node --check tests/parent_api.test.js
@@ -36,9 +37,11 @@ jobs:
           db.executescript(Path('migrations/0001_init.sql').read_text())
           db.executescript(Path('migrations/0002_parent_access.sql').read_text())
           db.executescript(Path('migrations/0003_family_children.sql').read_text())
+          db.executescript(Path('migrations/0004_parent_totp.sql').read_text())
           tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
           assert {'users', 'sessions', 'parent_challenges', 'parent_grants',
-                  'children', 'child_entry_codes', 'child_sessions'} <= tables
+                  'children', 'child_entry_codes', 'child_sessions',
+                  'parent_totp', 'parent_totp_recovery'} <= tables
           PY
       - name: Run original and new tests
         run: npm test

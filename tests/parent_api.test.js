@@ -11,7 +11,7 @@ const sha = async s => Array.from(new Uint8Array(await crypto.subtle.digest(
 
 class FakeD1 {
   constructor() { this.sessions=new Map();this.rate=new Map();this.challenges=new Map();
-    this.grants=new Map();this.guardian=new Map(); }
+    this.grants=new Map();this.guardian=new Map();this.totp=new Map(); }
   prepare(sql) {
     const db=this;
     return {bind(...args) {
@@ -25,6 +25,7 @@ class FakeD1 {
           }
           if(sql.startsWith('SELECT declared_at,withdrawn_at FROM guardian_declarations'))
             return db.guardian.get(args[0])||null;
+          if(sql.startsWith('SELECT * FROM parent_totp WHERE user_id=?')) return db.totp.get(args[0])||null;
           if(sql.startsWith('SELECT id,email FROM users')) return null;
           if(sql.startsWith('SELECT used FROM daily_ai_usage')) return {used:0};
           if(sql.includes('FROM subscription_entitlements')) return null;
@@ -91,12 +92,16 @@ const envFor = db => ({DB:db, SESSION_PEPPER:'local-test-session-pepper',
   OTP_PEPPER:'local-test-otp-pepper',RESEND_API_KEY:'fake-resend-only',
   EMAIL_FROM:'NELUUN <noreply@example.org>',
   PARENT_STEP_UP_ENABLED:'true', AI_ENABLED:'false'});
-async function setup() {
+async function setup({declared=true}={}) {
   const db=new FakeD1(),env=envFor(db);
   const hashA=await sha(env.SESSION_PEPPER+':'+sidA);
   const hashB=await sha(env.SESSION_PEPPER+':'+sidB);
   db.sessions.set(hashA,{id:'adult-a',email:'adult-a@example.org',expires_at:now()+3600});
   db.sessions.set(hashB,{id:'adult-b',email:'adult-b@example.org',expires_at:now()+3600});
+  if(declared){
+    db.guardian.set('adult-a',{declared_at:now(),withdrawn_at:null});
+    db.guardian.set('adult-b',{declared_at:now(),withdrawn_at:null});
+  }
   return {db,env,hashA,hashB};
 }
 function request(path,{method='GET',sid=sidA,body={},requestOrigin=origin,
@@ -148,6 +153,17 @@ test('Step-up required even when member already signed in',async()=>{
   assert.equal((await call(env,'/api/adult/private/status')).status,403);
   assert.equal((await call(env,'/api/chat',{method:'POST',body:{mode:'personal',message:'hi'}})).status,403);
   assert.equal((await call(env,'/api/guardian/declare',{method:'POST',body:{agree:true,confirmGuardian:true}})).status,403);
+});
+test('Accounts without a guardian declaration need no step-up for the adult area',async()=>{
+  const {env}=await setup({declared:false});
+  const status=await call(env,'/api/parent/status');
+  assert.equal(status.body.adultAccess,true);assert.equal(status.body.stepUpRequired,false);
+  assert.equal((await call(env,'/api/adult/private/status')).status,200);
+  assert.notEqual((await call(env,'/api/chat',{method:'POST',body:{mode:'personal',message:'hi'}})).status,403);
+  // Guardian-only actions stay locked behind step-up.
+  assert.equal((await call(env,'/api/parent/status?strict=1')).body.adultAccess,false);
+  assert.equal((await call(env,'/api/guardian/declare',{method:'POST',body:{agree:true,confirmGuardian:true}})).status,403);
+  assert.equal((await call(env,'/api/family/children')).status,403);
 });
 test('OTP binds to verified email and single session, and cannot be replayed',async()=>{
   await withEmail(async({code,mail,count})=>{

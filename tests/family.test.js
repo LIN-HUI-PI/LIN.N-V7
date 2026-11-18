@@ -30,7 +30,7 @@ const ENV = { SESSION_PEPPER: 'test-session-pepper', OTP_PEPPER: 'test-otp-peppe
 async function setup({ declare = true } = {}) {
   const db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys=ON');
-  for (const f of ['0001_init', '0002_parent_access', '0003_family_children'])
+  for (const f of ['0001_init', '0002_parent_access', '0003_family_children', '0004_parent_totp'])
     db.exec(readFileSync(new URL(`../migrations/${f}.sql`, import.meta.url), 'utf8'));
   const assetsSeen = [];
   const env = { ...ENV, DB: d1(db), ASSETS: { fetch: async req => {
@@ -255,4 +255,127 @@ test('Child Worker is closed when secrets are missing, logout clears the session
   assert.equal((await json(await K(env, '/api/kids/me', { cookie: r.cookie }))).body.authenticated, false);
   delete env.SESSION_PEPPER;
   assert.equal((await K(env, '/api/kids/me')).status, 503);
+});
+
+// ---- Authenticator app (TOTP) -------------------------------------------------
+import { hotp, STEP } from '../src/v95_totp.js';
+const b32decode = s => { let bits = 0, v = 0; const out = [];
+  for (const ch of s) { v = (v << 5) | 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'.indexOf(ch); bits += 5;
+    if (bits >= 8) { out.push((v >>> (bits - 8)) & 255); bits -= 8; } }
+  return new Uint8Array(out); };
+const P = async (env, path, body, o = {}) => json(await adult.fetch(req(ADULT_ORIGIN, path,
+  { method: body === undefined ? 'GET' : 'POST', body, cookie: 'neluun_sid=' + sidA, ...o }), env));
+async function codeAt(secretB32, offsetSteps = 0) {
+  return hotp(b32decode(secretB32), Math.floor(Date.now() / 1000 / STEP) + offsetSteps);
+}
+async function enroll(env, db) {
+  await unlock(db);
+  const begin = await P(env, '/api/parent/totp/begin', {});
+  assert.equal(begin.status, 200, JSON.stringify(begin.body));
+  const done = await P(env, '/api/parent/totp/confirm', { code: await codeAt(begin.body.secret) });
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+  return { secret: begin.body.secret, recovery: done.body.recoveryCodes, begin: begin.body };
+}
+async function lockAll(db) { db.prepare('DELETE FROM parent_grants').run(); }
+
+test('TOTP: setup needs step-up, secret is encrypted at rest, uri is standard', async () => {
+  const { env, db } = await setup();
+  assert.equal((await P(env, '/api/parent/totp/begin', {})).status, 403);   // not unlocked
+  const e = await enroll(env, db);
+  assert.match(e.begin.uri, /^otpauth:\/\/totp\/NELUUN%3Aa%40example\.org\?secret=[A-Z2-7]{32}&issuer=NELUUN/);
+  assert.equal(e.recovery.length, 8);
+  const row = db.prepare('SELECT * FROM parent_totp WHERE user_id=?').get('user-a');
+  assert.ok(row.confirmed_at);
+  assert.ok(!row.secret_enc.includes(e.secret), 'secret must not be stored in plaintext');
+  const rec = db.prepare('SELECT code_hash FROM parent_totp_recovery').all();
+  assert.equal(rec.length, 8);
+  for (const c of e.recovery) assert.ok(!rec.some(r => r.code_hash.includes(c)), 'recovery codes stored hashed only');
+  assert.equal((await P(env, '/api/parent/totp/begin', {})).status, 409);   // already enrolled
+});
+
+test('TOTP: confirm rejects wrong code and does not enrol', async () => {
+  const { env, db } = await setup(); await unlock(db);
+  const b = await P(env, '/api/parent/totp/begin', {});
+  const good = await codeAt(b.body.secret), bad = good === '000000' ? '111111' : '000000';
+  assert.equal((await P(env, '/api/parent/totp/confirm', { code: bad })).status, 401);
+  assert.equal((await P(env, '/api/parent/totp/status')).body.enrolled, false);
+  assert.equal((await P(env, '/api/parent/totp/confirm', { code: 'abcdef' })).status, 400);
+});
+
+test('TOTP: once enrolled the grant comes only from the authenticator, not email', async () => {
+  const { env, db } = await setup(); const e = await enroll(env, db); await lockAll(db);
+  assert.equal((await P(env, '/api/parent/challenge', {})).body.error, 'use_totp');
+  assert.equal((await P(env, '/api/parent/verify', { code: '123456' })).body.error, 'use_totp');
+  assert.equal((await A(env, '/api/family/children')).status, 403);
+  const ok = await P(env, '/api/parent/totp/verify', { code: await codeAt(e.secret, 1) });   // next step still accepted
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.adultAccess, true); assert.ok(ok.body.expiresIn <= 600);
+  assert.equal((await A(env, '/api/family/children')).status, 200);
+});
+
+test('TOTP: a used code cannot be replayed, older steps are rejected', async () => {
+  const { env, db } = await setup(); const e = await enroll(env, db); await lockAll(db);
+  const c = await codeAt(e.secret, 1);
+  assert.equal((await P(env, '/api/parent/totp/verify', { code: c })).status, 200);
+  await lockAll(db);
+  assert.equal((await P(env, '/api/parent/totp/verify', { code: c })).status, 401);                 // replay
+  assert.equal((await P(env, '/api/parent/totp/verify', { code: await codeAt(e.secret, 0) })).status, 401); // older than last_step
+  assert.equal((await A(env, '/api/family/children')).status, 403);
+});
+
+test('TOTP: wrong codes are rate limited per user, then even the right code waits', async () => {
+  const { env, db } = await setup(); const e = await enroll(env, db); await lockAll(db);
+  const good = await codeAt(e.secret, 1), bad = good === '000000' ? '111111' : '000000';
+  let last;
+  for (let i = 0; i < 12; i++) last = await P(env, '/api/parent/totp/verify', { code: bad }, { ip: '198.51.100.' + i });
+  assert.equal(last.status, 429);
+  assert.equal((await P(env, '/api/parent/totp/verify', { code: good }, { ip: '198.51.100.99' })).status, 429);
+});
+
+test('TOTP: recovery code works once, unlocks, and is consumed', async () => {
+  const { env, db } = await setup(); const e = await enroll(env, db); await lockAll(db);
+  const r = await P(env, '/api/parent/totp/verify', { code: e.recovery[0] });
+  assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(r.body.recoveryLeft, 7);
+  await lockAll(db);
+  assert.equal((await P(env, '/api/parent/totp/verify', { code: e.recovery[0] })).status, 401);
+  assert.equal((await P(env, '/api/parent/totp/verify', { code: 'AAAAA-AAAAA' })).status, 401);
+  assert.equal((await P(env, '/api/parent/totp/verify', { code: e.recovery[0].toLowerCase() + 'x' })).status, 400);
+});
+
+test('TOTP: another account cannot use this account\'s code or recovery codes', async () => {
+  const { env, db } = await setup(); const e = await enroll(env, db); await lockAll(db);
+  const asB = { cookie: 'neluun_sid=' + sidB };
+  assert.equal((await P(env, '/api/parent/totp/verify', { code: await codeAt(e.secret, 1) }, asB)).status, 409); // B not enrolled
+  db.prepare("INSERT INTO parent_totp(user_id,secret_enc,confirmed_at,last_step,created_at) VALUES('user-b','x',1,0,1)").run();
+  assert.equal((await P(env, '/api/parent/totp/verify', { code: e.recovery[1] }, asB)).status, 401);
+});
+
+test('TOTP: removal needs an unlock; afterwards email step-up works again', async () => {
+  const { env, db } = await setup(); await enroll(env, db); await lockAll(db);
+  assert.equal((await P(env, '/api/parent/totp/remove', {})).status, 403);
+  await unlock(db);
+  assert.equal((await P(env, '/api/parent/totp/remove', {})).status, 200);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM parent_totp').get().n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM parent_totp_recovery').get().n, 0);
+  const c = await P(env, '/api/parent/challenge', {});
+  assert.notEqual(c.body.error, 'use_totp');
+});
+
+test('TOTP: CSRF and bad input are refused', async () => {
+  const { env, db } = await setup(); await unlock(db);
+  assert.equal((await P(env, '/api/parent/totp/begin', {}, { reqOrigin: 'https://evil.example' })).status, 403);
+  assert.equal((await P(env, '/api/parent/totp/begin', {}, { type: 'text/plain' })).status, 403);
+  assert.equal((await P(env, '/api/parent/totp/begin')).status, 405);
+  assert.equal((await P(env, '/api/parent/totp/status', {})).status, 405);
+  assert.equal((await P(env, '/api/parent/totp/verify', { code: 123456 })).status, 400);
+  assert.equal((await P(env, '/api/parent/totp/verify', { code: 'x'.repeat(600) })).status, 400);
+  assert.equal((await P(env, '/api/parent/totp/begin', {}, { cookie: undefined })).status, 401);
+});
+
+test('No step-up for a signed-in account without a guardian declaration, but family stays locked', async () => {
+  const { env } = await setup({ declare: false });
+  const s = await P(env, '/api/parent/status');
+  assert.equal(s.body.adultAccess, true); assert.equal(s.body.stepUpRequired, false);
+  assert.equal((await P(env, '/api/parent/status?strict=1')).body.adultAccess, false);
+  assert.equal((await A(env, '/api/family/children')).status, 403);
 });
