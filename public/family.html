@@ -25,6 +25,13 @@ label{display:block;font-size:14px;color:#c6b5a0;margin-top:8px}
 .child{border-top:1px solid #4a3d2c;padding-top:14px;margin-top:14px}
 .name{font-size:20px;font-weight:750}.badge{font-size:13px;color:#9be0ab}
 .code{font:800 40px/1.2 ui-monospace,Menlo,monospace;letter-spacing:.14em;text-align:center;background:#17120e;border:2px dashed #e8c58e;border-radius:16px;padding:18px 8px;margin:12px 0;color:#fff3d8}
+details.panel>summary{cursor:pointer;font-size:20px;font-weight:700;list-style:none}
+details.panel>summary::-webkit-details-marker{display:none}
+details.panel>summary::after{content:'＋';float:right;color:#a88652}
+details.panel[open]>summary::after{content:'－'}
+details.panel[open]>summary{margin-bottom:8px}
+button.link{display:inline;width:auto;background:none;border:0;color:#e8c58e;text-decoration:underline;padding:6px 0;margin:4px 0;font-weight:500}
+.chk{margin:6px 0;color:#d6c3a7}.chk b{color:#9be0ab}.chk b.bad{color:#f0b3b3}
 a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #fff;outline-offset:2px}
 </style></head>
 <body><main class="wrap">
@@ -38,29 +45,63 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
   <a href="./">前往成人登入</a>
 </section>
 
-<section id="needStepUp" class="panel hidden">
-  <h2>成人區二次驗證</h2>
-  <p>我們會寄 6 位數驗證碼到你已登入的信箱，10 分鐘內有效。這只能證明你控制這個信箱，不等於法定監護人身分驗證。</p>
-  <button id="sendCode" type="button">寄送六位數驗證碼</button>
-  <div id="codeBox" class="hidden">
-    <label for="otp">輸入信箱收到的 6 位數</label>
-    <input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
-    <button id="verify" type="button">驗證</button>
+<section id="needVerify" class="panel hidden">
+  <h2>確認是你本人</h2>
+  <p id="verifyIntro"></p>
+  <div id="emailStep" class="hidden">
+    <button id="sendCode" type="button">寄送 6 位數驗證碼到我的信箱</button>
   </div>
-</section>
-
-<section id="needTotp" class="panel hidden">
-  <h2>成人區驗證（驗證器 App）</h2>
-  <p>請打開手機上的驗證器 App，輸入 NELUUN 顯示的 6 位數。若手機遺失，可改輸入設定時保存的備用碼（格式 XXXXX-XXXXX）。</p>
-  <label for="totpCode">6 位數驗證碼或備用碼</label>
-  <input id="totpCode" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="11">
-  <button id="totpVerify" type="button">驗證</button>
+  <div id="codeStep" class="hidden">
+    <label id="vlabel" for="vcode"></label>
+    <input id="vcode" autocomplete="one-time-code" spellcheck="false">
+    <button id="verify" type="button">驗證</button>
+    <button id="altBackup" type="button" class="link hidden">手機不在身邊？改用備用碼</button>
+  </div>
+  <p class="note">這只能證明你控制這個信箱或手機，不等於法定監護人身分驗證。</p>
 </section>
 
 <section id="main" class="hidden">
-  <div id="totpBox" class="panel">
-    <h2>驗證器 App（建議）</h2>
-    <p id="totpState">每次管理孩子時，用手機驗證器 App 的 6 位數確認，免費、不需簡訊。</p>
+  <div id="declBox" class="panel hidden">
+    <h2>第 1 步：監護人聲明</h2>
+    <p>建立孩子檔案前，請確認你是這位孩子的父母或法定監護人，並同意由你決定孩子何時使用、全程陪同。</p>
+    <label style="display:flex;gap:10px;align-items:flex-start;color:#e8d5b4;font-size:16px">
+      <input id="agree1" type="checkbox" style="width:22px;margin-top:4px">
+      <span>我是孩子的父母或法定監護人。</span></label>
+    <label style="display:flex;gap:10px;align-items:flex-start;color:#e8d5b4;font-size:16px">
+      <input id="agree2" type="checkbox" style="width:22px;margin-top:4px">
+      <span>每次孩子使用時，我會在旁陪同。</span></label>
+    <button id="declare" type="button">送出聲明</button>
+    <p class="note">這是你自行聲明，系統不會驗證你的法定身分。</p>
+  </div>
+
+  <div id="kidsBox" class="hidden">
+    <div class="panel">
+      <h2>我的孩子</h2>
+      <div id="list"></div>
+      <p id="empty" class="note">還沒有孩子檔案，請先在下方新增。</p>
+    </div>
+    <details id="addBox" class="panel">
+      <summary>新增孩子</summary>
+      <label for="nick">暱稱（1 到 12 字，請不要用真實姓名）</label>
+      <input id="nick" maxlength="12" autocomplete="off">
+      <label for="avatar">頭像</label>
+      <select id="avatar">
+        <option value="cat">🐱 貓</option><option value="rabbit">🐰 兔</option>
+        <option value="bear">🐻 熊</option><option value="fox">🦊 狐狸</option>
+        <option value="panda">🐼 熊貓</option><option value="owl">🦉 貓頭鷹</option>
+      </select>
+      <button id="add" type="button">新增孩子檔案</button>
+    </details>
+    <details class="panel">
+      <summary>孩子入口網址</summary>
+      <p id="kidsUrl" style="word-break:break-all"></p>
+      <p class="note">把這個網址放在孩子的裝置上。孩子要輸入你產生的 8 位數代碼才能進入。</p>
+    </details>
+  </div>
+
+  <details id="totpBox" class="panel">
+    <summary>安全設定：驗證器 App</summary>
+    <p id="totpState"></p>
     <div id="totpSetup" class="hidden">
       <p>1. 在手機安裝任一驗證器 App（例如 Google Authenticator）。<br>2. 按下方「在驗證器開啟」，或手動輸入這組金鑰：</p>
       <div id="totpSecret" class="secret"></div>
@@ -76,45 +117,16 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
     </div>
     <button id="totpBegin" type="button">設定驗證器 App</button>
     <button id="totpRemove" type="button" class="danger hidden">移除驗證器</button>
-  </div>
-  <div id="declBox" class="panel hidden">
-    <h2>監護人聲明</h2>
-    <p>建立孩子檔案前，請確認你是這位孩子的父母或法定監護人，並同意由你決定孩子何時使用、全程陪同。</p>
-    <label style="display:flex;gap:10px;align-items:flex-start;color:#e8d5b4;font-size:16px">
-      <input id="agree1" type="checkbox" style="width:22px;margin-top:4px">
-      <span>我是孩子的父母或法定監護人。</span></label>
-    <label style="display:flex;gap:10px;align-items:flex-start;color:#e8d5b4;font-size:16px">
-      <input id="agree2" type="checkbox" style="width:22px;margin-top:4px">
-      <span>每次孩子使用時，我會在旁陪同。</span></label>
-    <button id="declare" type="button">送出聲明</button>
-    <p class="note">這是你自行聲明，系統不會驗證你的法定身分。</p>
-  </div>
+  </details>
 
-  <div id="kidsBox" class="hidden">
-    <div class="panel">
-      <h2>孩子入口網址</h2>
-      <p id="kidsUrl" style="word-break:break-all"></p>
-      <p class="note">把這個網址放在孩子的裝置上。孩子要輸入你產生的代碼才能進入。</p>
-    </div>
-    <div class="panel">
-      <h2>我的孩子</h2>
-      <div id="list"></div>
-      <p id="empty" class="note">還沒有孩子檔案。</p>
-    </div>
-    <div class="panel">
-      <h2>新增孩子</h2>
-      <label for="nick">暱稱（1 到 12 字，請不要用真實姓名）</label>
-      <input id="nick" maxlength="12" autocomplete="off">
-      <label for="avatar">頭像</label>
-      <select id="avatar">
-        <option value="cat">🐱 貓</option><option value="rabbit">🐰 兔</option>
-        <option value="bear">🐻 熊</option><option value="fox">🦊 狐狸</option>
-        <option value="panda">🐼 熊貓</option><option value="owl">🦉 貓頭鷹</option>
-      </select>
-      <button id="add" type="button">新增孩子檔案</button>
-    </div>
-    <button id="lock" class="secondary" type="button">鎖定成人區</button>
-  </div>
+  <details class="panel" id="checkBox">
+    <summary>系統檢查</summary>
+    <p class="note">確認成人站與孩童站的密鑰一致。不一致時，孩子輸入代碼會一直失敗。</p>
+    <button id="runCheck" type="button" class="secondary">開始檢查</button>
+    <div id="checkOut"></div>
+  </details>
+
+  <button id="lock" class="secondary" type="button">鎖定成人區</button>
 </section>
 </main>
 <script>
@@ -128,7 +140,7 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
     var o={method:method||'GET',credentials:'same-origin',cache:'no-store',headers:{accept:'application/json'}};
     if(o.method!=='GET'){o.headers['content-type']='application/json';o.body=JSON.stringify(body||{})}
     var r,d;
-    try{r=await fetch(path,o);d=await r.json()}catch(e){throw Error('連線失敗，請稍後再試。')}
+    try{r=await fetch(path,o);d=await r.json()}catch(e){throw Error('連線失敗。請檢查網路後，再按一次。')}
     if(!r.ok||d.ok!==true){var er=new Error(d.message||'操作未完成。');er.code=d.error;er.status=r.status;throw er}
     return d;
   }
@@ -137,20 +149,31 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
     if(/\.workers\.dev$/.test(h))return 'https://neluun-v95-kids-test.'+h.split('.').slice(1).join('.');
     return '（請填入孩童站的網址）';
   }
+  var mode='email';
+  function setVerifyMode(m){
+    mode=m;var tot=m==='totp';
+    $('verifyIntro').textContent=tot
+      ?'請打開手機上的驗證器 App，輸入 NELUUN 現在顯示的 6 位數。數字每 30 秒會換，請等新數字出現後馬上輸入。'
+      :'我們會寄 6 位數驗證碼到你登入的信箱，10 分鐘內有效。';
+    show('emailStep',!tot);show('codeStep',tot);show('altBackup',tot);
+    $('vlabel').textContent='驗證器上的 6 位數';
+    $('vcode').setAttribute('inputmode','numeric');$('vcode').setAttribute('maxlength','6');$('vcode').value='';
+  }
   async function boot(){
-    msg('');['needLogin','needStepUp','needTotp','main'].forEach(function(x){show(x,false)});
+    msg('');['needLogin','needVerify','main'].forEach(function(x){show(x,false)});
     var me;
     try{me=await api('/api/me')}catch(e){msg(e.message);return}
     if(!me.authenticated){show('needLogin',true);return}
     var st;
     try{st=await api('/api/parent/status?strict=1')}
     catch(e){
-      if(e.code==='not_configured'){msg('家長二次驗證尚未啟用（伺服器設定）。');return}
+      if(e.code==='not_configured'){msg('伺服器尚未完成設定（家長驗證）。請回報給開發者。');return}
       msg(e.message);return;
     }
     if(!st.adultAccess){
       var ts=null;try{ts=await api('/api/parent/totp/status')}catch(e){}
-      if(ts&&ts.enrolled){show('needTotp',true);$('totpCode').focus()}else show('needStepUp',true);
+      setVerifyMode(ts&&ts.enrolled?'totp':'email');show('needVerify',true);
+      if(mode==='totp')$('vcode').focus();
       return;
     }
     show('main',true);await totpPaint();await refresh();
@@ -161,6 +184,7 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
       show('declBox',!d.declaration);show('kidsBox',d.declaration);
       $('kidsUrl').textContent=kidsUrl();
       render(d.children||[]);
+      $('addBox').open=(d.children||[]).length===0;
     }catch(e){
       if(e.code==='adult_locked'||e.code==='sign_in'){boot();return}
       msg(e.message);
@@ -221,7 +245,7 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
   async function totpPaint(){
     var enrolled=false;
     try{enrolled=(await api('/api/parent/totp/status')).enrolled}catch(e){}
-    $('totpState').textContent=enrolled?'已啟用：之後每次登入管理頁，都用驗證器 App 的 6 位數確認。':'每次管理孩子時，用手機驗證器 App 的 6 位數確認，免費、不需簡訊。';
+    $('totpState').textContent=enrolled?'已啟用。之後進入家長區，都用驗證器 App 的 6 位數確認。':'尚未啟用。啟用後，進入家長區改用手機驗證器 App 的 6 位數，免費、不需簡訊。';
     show('totpBegin',!enrolled);show('totpRemove',enrolled);
     if(enrolled){show('totpSetup',false)}
   }
@@ -253,26 +277,52 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
     if(!confirm('確定移除驗證器？之後會改回信箱驗證碼。'))return;
     try{await api('/api/parent/totp/remove','POST',{});await totpPaint()}catch(e){msg(e.message)}
   };
-  $('totpVerify').onclick=async function(){
-    msg('');var v=$('totpCode').value.trim().toUpperCase();
-    if(!/^([0-9]{6}|[A-HJ-KM-NP-Z2-9]{5}-[A-HJ-KM-NP-Z2-9]{5})$/.test(v)){msg('請輸入六位數或備用碼（XXXXX-XXXXX）。');return}
-    try{
-      var r=await api('/api/parent/totp/verify','POST',{code:v});$('totpCode').value='';
-      await boot();
-      if(typeof r.recoveryLeft==='number'&&r.recoveryLeft<=2)msg('備用碼剩 '+r.recoveryLeft+' 組，建議重新設定驗證器以產生新備用碼。');
-    }catch(e){msg(e.message)}
+  $('altBackup').onclick=function(){
+    $('vlabel').textContent='備用碼（格式 XXXXX-XXXXX，每組只能用一次）';
+    $('vcode').setAttribute('inputmode','text');$('vcode').setAttribute('maxlength','11');
+    $('vcode').setAttribute('autocapitalize','characters');$('vcode').value='';
+    show('altBackup',false);$('vcode').focus();
   };
   $('sendCode').onclick=async function(){
     msg('');$('sendCode').disabled=true;
-    try{await api('/api/parent/challenge','POST',{});show('codeBox',true);$('otp').focus()}
-    catch(e){msg(e.message)}
+    try{
+      await api('/api/parent/challenge','POST',{});
+      show('emailStep',false);show('codeStep',true);
+      $('vlabel').textContent='信箱收到的 6 位數';
+      $('vcode').setAttribute('inputmode','numeric');$('vcode').setAttribute('maxlength','6');$('vcode').focus();
+    }catch(e){
+      if(e.code==='use_totp'){boot();return}
+      msg(e.message);
+    }
     $('sendCode').disabled=false;
   };
   $('verify').onclick=async function(){
-    msg('');var v=$('otp').value.trim();
-    if(!/^[0-9]{6}$/.test(v)){msg('請輸入六位數驗證碼。');return}
-    try{await api('/api/parent/verify','POST',{code:v});$('otp').value='';await boot()}
-    catch(e){msg(e.message)}
+    msg('');var v=$('vcode').value.trim().toUpperCase();
+    var okFmt=mode==='totp'?/^([0-9]{6}|[A-HJ-KM-NP-Z2-9]{5}-[A-HJ-KM-NP-Z2-9]{5})$/.test(v):/^[0-9]{6}$/.test(v);
+    if(!okFmt){msg(mode==='totp'?'格式不對。請輸入 6 位數，或備用碼（XXXXX-XXXXX）。':'格式不對。請輸入信裡的 6 位數。');return}
+    try{
+      var r=await api(mode==='totp'?'/api/parent/totp/verify':'/api/parent/verify','POST',{code:v});
+      $('vcode').value='';await boot();
+      if(typeof r.recoveryLeft==='number'&&r.recoveryLeft<=2)msg('備用碼只剩 '+r.recoveryLeft+' 組。請到「安全設定」重新設定驗證器，取得新的備用碼。');
+    }catch(e){
+      if(e.code==='use_totp'){boot();return}
+      msg(e.message);
+    }
+  };
+  $('runCheck').onclick=async function(){
+    var out=$('checkOut');out.textContent='';
+    function line(t,good){var p=document.createElement('p');p.className='chk';var b=document.createElement('b');if(good===false)b.className='bad';b.textContent=t;p.appendChild(b);out.appendChild(p)}
+    var a,k;
+    try{a=(await api('/api/parent/pepper-fp')).pepper}catch(e){line('成人站讀取失敗：'+e.message,false);return}
+    line('成人站密鑰指紋：'+a);
+    var ku=kidsUrl();
+    if(ku.indexOf('http')!==0){line('孩童站網址尚未設定，無法比對。',false);return}
+    try{var r=await fetch(ku+'/api/kids/health',{mode:'cors',credentials:'omit',cache:'no-store'});k=(await r.json()).pepper}
+    catch(e){line('連不上孩童站，或孩童站尚未更新到最新版。請到 Cloudflare 確認孩童站已重新部署後再檢查。',false);return}
+    if(!k){line('孩童站尚未設定密鑰（OTP_PEPPER）。',false);return}
+    line('孩童站密鑰指紋：'+k);
+    if(a===k)line('✓ 兩邊一致，密鑰沒有問題。');
+    else line('✗ 不一致。請把兩個站的 OTP_PEPPER 設成同一串，儲存並重新部署後，再檢查一次。',false);
   };
   $('declare').onclick=async function(){
     msg('');

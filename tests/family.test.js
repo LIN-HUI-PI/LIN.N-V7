@@ -402,3 +402,15 @@ test('Child entry code still works when one Worker has a padded OTP_PEPPER', asy
   const r = await json(await K(kidsEnv, '/api/kids/enter', { method: 'POST', body: { code: s.body.code } }));
   assert.equal(r.status, 200, JSON.stringify(r.body));
 });
+
+test('Kids health is cross-origin readable only from the adult site, and exposes the fingerprint only', async () => {
+  const { env } = await setup();
+  const ask = origin => kids.fetch(new Request(KIDS_ORIGIN + '/api/kids/health', {
+    headers: origin ? { origin } : {} }), env);
+  const ok = await ask(ADULT_ORIGIN);
+  assert.equal(ok.headers.get('access-control-allow-origin'), ADULT_ORIGIN);
+  const body = await ok.json(); assert.match(body.pepper, /^[0-9a-f]{6}$/);
+  assert.ok(!JSON.stringify(body).includes(ENV.OTP_PEPPER));
+  assert.equal((await ask('https://evil.example')).headers.get('access-control-allow-origin'), null);
+  assert.equal((await ask(null)).headers.get('access-control-allow-origin'), null);
+});

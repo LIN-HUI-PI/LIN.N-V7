@@ -104,7 +104,14 @@ export default {
       if (path.startsWith('/api/')) {
         if (!ready(env)) return deny(503, 'not_configured', '孩童入口尚未啟用。');
         if (path === '/api/kids/me' && req.method === 'GET') return await me(req, env);
-        if (path === '/api/kids/health' && req.method === 'GET') return respond({ ok: true, pepper: await pepperFingerprint(env) });
+        if (path === '/api/kids/health' && req.method === 'GET') {
+          // Fingerprint only (never the secret). Readable cross-origin by the adult site's check page only.
+          const origin = req.headers.get('origin') || '';
+          const adultOk = origin && (origin === String(env.ADULT_ORIGIN || '').trim() ||
+            /^https:\/\/neluun-v95-auth-test\.[a-z0-9-]+\.workers\.dev$/.test(origin));
+          return respond({ ok: true, pepper: await pepperFingerprint(env) }, 200,
+            adultOk ? { 'access-control-allow-origin': origin } : {});
+        }
         if (path === '/api/kids/enter' && req.method === 'POST') return await enter(req, env);
         if (path === '/api/kids/logout' && req.method === 'POST') return await logout(req, env);
         if (path === '/api/kids/chat')

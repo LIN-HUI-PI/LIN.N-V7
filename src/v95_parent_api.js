@@ -127,7 +127,7 @@ async function totpLimits(req, env, user) {
   return (await limit(env, 'totp-ip:' + ip, 30, 3600)) && (await limit(env, 'totp-user:' + user.id, 10, 3600));
 }
 async function totpBegin(env, user) {
-  if (!(await access(env, user)).adultAccess) return deny(403, 'adult_locked', '需要家長二次驗證。');
+  if (!(await access(env, user)).adultAccess) return deny(403, 'adult_locked', '需要先通過二次驗證。請重新整理本頁。');
   if (await totpEnrolled(env, user.id)) return deny(409, 'already_enrolled', '已設定驗證器；要更換請先移除。');
   const secret = newSecret(), sealed = await sealSecret(env.OTP_PEPPER, user.id, secret);
   await env.DB.prepare(
@@ -138,14 +138,14 @@ async function totpBegin(env, user) {
   return respond({ ok: true, secret: text, uri: otpauthUri(user.email, text) });
 }
 async function totpConfirm(req, env, user) {
-  if (!(await access(env, user)).adultAccess) return deny(403, 'adult_locked', '需要家長二次驗證。');
+  if (!(await access(env, user)).adultAccess) return deny(403, 'adult_locked', '需要先通過二次驗證。請重新整理本頁。');
   const code = await readCode(req, /^[0-9]{6}$/);
-  if (!code) return deny(400, 'bad_request', '請輸入驗證器上的六位數。');
-  if (!(await totpLimits(req, env, user))) return deny(429, 'try_later', '嘗試過於頻繁，請稍後再試。');
+  if (!code) return deny(400, 'bad_request', '請輸入驗證器 App 上的 6 位數。');
+  if (!(await totpLimits(req, env, user))) return deny(429, 'try_later', '嘗試次數太多。請等一段時間後再試。');
   const row = await env.DB.prepare('SELECT * FROM parent_totp WHERE user_id=? AND confirmed_at IS NULL').bind(user.id).first();
-  if (!row) return deny(409, 'no_pending', '請先開始設定驗證器。');
+  if (!row) return deny(409, 'no_pending', '請先按「設定驗證器 App」開始。');
   const step = await matchStep(await openSecret(env.OTP_PEPPER, user.id, row.secret_enc), code, now(), 0);
-  if (step === null) return deny(401, 'invalid_code', '驗證碼錯誤，請確認手機時間正確後再試。');
+  if (step === null) return deny(401, 'invalid_code', '這組 6 位數不對。請確認手機的日期時間設為自動，再輸入 App 現在顯示的數字。');
   const t = now();
   await env.DB.prepare('UPDATE parent_totp SET confirmed_at=?,last_step=? WHERE user_id=? AND confirmed_at IS NULL')
     .bind(t, step, user.id).run();
@@ -161,22 +161,22 @@ async function totpConfirm(req, env, user) {
 }
 async function totpVerify(req, env, user) {
   const code = await readCode(req, new RegExp('^(?:[0-9]{6}|' + RECOVERY_RE.source.slice(1, -1) + ')$'));
-  if (!code) return deny(400, 'bad_request', '請輸入六位數驗證碼或備用碼。');
-  if (!(await totpLimits(req, env, user))) return deny(429, 'try_later', '驗證過於頻繁，請稍後再試。');
+  if (!code) return deny(400, 'bad_request', '請輸入 6 位數，或備用碼（XXXXX-XXXXX）。');
+  if (!(await totpLimits(req, env, user))) return deny(429, 'try_later', '嘗試次數太多。請等一段時間後再試。');
   const row = await totpRow(env, user.id);
-  if (!row || !row.confirmed_at) return deny(409, 'not_enrolled', '尚未設定驗證器。');
+  if (!row || !row.confirmed_at) return deny(409, 'not_enrolled', '尚未設定驗證器。請改用信箱驗證碼。');
   if (/^[0-9]{6}$/.test(code)) {
     const step = await matchStep(await openSecret(env.OTP_PEPPER, user.id, row.secret_enc), code, now(), Number(row.last_step));
     // Compare-and-set the step so a captured code cannot be replayed.
     const claimed = step === null ? null : await env.DB.prepare(
       'UPDATE parent_totp SET last_step=? WHERE user_id=? AND last_step<? RETURNING user_id'
     ).bind(step, user.id, step).first();
-    if (!claimed) return deny(401, 'invalid_code', '驗證碼錯誤或已使用過。');
+    if (!claimed) return deny(401, 'invalid_code', '這組 6 位數不對或已用過。請等 App 換成新的數字後再輸入。');
   } else {
     const used = await env.DB.prepare(
       'DELETE FROM parent_totp_recovery WHERE code_hash=? AND user_id=? RETURNING code_hash'
     ).bind(await sha(env.OTP_PEPPER + ':totp-recovery:' + user.id + ':' + code), user.id).first();
-    if (!used) return deny(401, 'invalid_code', '備用碼錯誤或已使用過。');
+    if (!used) return deny(401, 'invalid_code', '這組備用碼不對或已用過。請確認格式 XXXXX-XXXXX，或改用驗證器的 6 位數。');
   }
   const expiresIn = await issueGrant(env, user);
   const left = await env.DB.prepare('SELECT COUNT(*) AS n FROM parent_totp_recovery WHERE user_id=?').bind(user.id).first();
@@ -184,18 +184,18 @@ async function totpVerify(req, env, user) {
     notice: '驗證器驗證不等於法定監護人身分驗證。' });
 }
 async function totpRemove(env, user) {
-  if (!(await access(env, user)).adultAccess) return deny(403, 'adult_locked', '需要家長二次驗證。');
+  if (!(await access(env, user)).adultAccess) return deny(403, 'adult_locked', '需要先通過二次驗證。請重新整理本頁。');
   await env.DB.prepare('DELETE FROM parent_totp WHERE user_id=?').bind(user.id).run();
   await env.DB.prepare('DELETE FROM parent_totp_recovery WHERE user_id=?').bind(user.id).run();
   return respond({ ok: true, enrolled: false });
 }
 async function challenge(req, env, user) {
-  if (await totpEnrolled(env, user.id)) return deny(409, 'use_totp', '已啟用驗證器，請用驗證器 App 的六位數驗證。');
+  if (await totpEnrolled(env, user.id)) return deny(409, 'use_totp', '你已啟用驗證器。請輸入驗證器 App 的 6 位數。');
   const ip = req.headers.get('cf-connecting-ip') || 'unknown';
   if (!(await limit(env, 'challenge-ip:' + ip, 12, 3600)) ||
       !(await limit(env, 'challenge-session:' + user.sessionHash, 5, 3600)) ||
       !(await limit(env, 'challenge-minute:' + user.sessionHash, 1, 60))) {
-    return deny(429, 'try_later', '驗證要求過於頻繁，請稍後再試。');
+    return deny(429, 'try_later', '這一小時寄送次數已達上限。請稍後再試，或改用驗證器。');
   }
   const code = otp(), issued = now();
   const codeHash = await sha(env.OTP_PEPPER + ':parent-code:' + user.sessionHash + ':' + code);
@@ -207,18 +207,18 @@ async function challenge(req, env, user) {
     'code_hash=excluded.code_hash,expires_at=excluded.expires_at,attempts=0,sent_at=excluded.sent_at ' +
     'WHERE parent_challenges.sent_at<=? RETURNING session_hash'
   ).bind(user.sessionHash, codeHash, issued + OTP_TTL, issued, issued - 60).first();
-  if (!reserved) return deny(429, 'cooldown', '新驗證碼要求過於頻繁，請稍後再試。');
+  if (!reserved) return deny(429, 'cooldown', '剛剛已寄過驗證碼。請等 1 分鐘後再按一次，或先查看信箱。');
   try { await sendEmail(env, user.email, code); }
   catch {
     await env.DB.prepare(
       'DELETE FROM parent_challenges WHERE session_hash=? AND code_hash=?'
     ).bind(user.sessionHash, codeHash).run();
-    return deny(502, 'email_unavailable', '安全驗證郵件暫時無法寄送。');
+    return deny(502, 'email_unavailable', '驗證信暫時寄不出去。請稍後再試一次。');
   }
   return respond({ ok: true, message: '已寄出成人區驗證碼。', expiresIn: OTP_TTL });
 }
 async function verify(req, env, user) {
-  if (await totpEnrolled(env, user.id)) return deny(409, 'use_totp', '已啟用驗證器，請用驗證器 App 的六位數驗證。');
+  if (await totpEnrolled(env, user.id)) return deny(409, 'use_totp', '你已啟用驗證器。請輸入驗證器 App 的 6 位數。');
   const len = Number(req.headers.get('content-length') || 0);
   if (len > 512) return deny(400, 'bad_request', '驗證資料過大。');
   const raw = await req.text();
@@ -227,11 +227,11 @@ async function verify(req, env, user) {
   try { body = JSON.parse(raw); } catch { return deny(400, 'bad_request', '驗證碼格式錯誤。'); }
   if (!body || typeof body !== 'object' || Array.isArray(body) ||
       typeof body.code !== 'string' || !/^[0-9]{6}$/.test(body.code)) {
-    return deny(400, 'bad_request', '請輸入六位數驗證碼。');
+    return deny(400, 'bad_request', '請輸入信裡的 6 位數。');
   }
   const ip = req.headers.get('cf-connecting-ip') || 'unknown';
   if (!(await limit(env, 'verify-ip:' + ip, 30, 3600)))
-    return deny(429, 'try_later', '驗證過於頻繁，請稍後再試。');
+    return deny(429, 'try_later', '嘗試次數太多。請等一段時間後再試。');
   const codeHash = await sha(env.OTP_PEPPER + ':parent-code:' + user.sessionHash + ':' + body.code);
   const consumed = await env.DB.prepare(
     'DELETE FROM parent_challenges WHERE session_hash=? AND code_hash=? ' +
@@ -242,7 +242,7 @@ async function verify(req, env, user) {
       'UPDATE parent_challenges SET attempts=attempts+1 ' +
       'WHERE session_hash=? AND expires_at>? AND attempts<5'
     ).bind(user.sessionHash, now()).run();
-    return deny(401, 'invalid_code', '驗證碼錯誤、已失效或嘗試次數已達上限。');
+    return deny(401, 'invalid_code', '驗證碼不對或已過期。請重新寄送，輸入最新一封信的 6 位數。');
   }
   const expiresIn = await issueGrant(env, user);
   return respond({
@@ -296,17 +296,17 @@ export default {
     if (!ready(env)) return deny(503, 'not_configured', '家長二次驗證尚未啟用。');
     try {
       const user = await identity(req, env);
-      if (!user) return deny(401, 'sign_in', '請先登入會員。');
+      if (!user) return deny(401, 'sign_in', '尚未登入。請先在成人入口用 Email 登入。');
       if (family) {
         if (!(await access(env, user)).adultAccess)
-          return deny(403, 'adult_locked', '需要家長二次驗證。');
+          return deny(403, 'adult_locked', '需要先通過二次驗證。請重新整理本頁。');
         return await handleFamily(req, env, user, pathname);
       }
       if (sensitiveOld) {
         const strict = pathname !== '/api/chat';
         const allowed = strict ? await access(env, user) : await accessOrOpen(env, user);
         if (!allowed.adultAccess)
-          return deny(403, 'adult_locked', '需要家長二次驗證。');
+          return deny(403, 'adult_locked', '需要先通過二次驗證。請重新整理本頁。');
         const result = await base.fetch(req, env);
         // Withdrawing the guardian declaration ends every child session at once.
         if (pathname === '/api/guardian/withdraw' && result.ok)
