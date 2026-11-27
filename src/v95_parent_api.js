@@ -4,7 +4,7 @@
  * This is an isolated candidate; no child AI, billing or cloud child data API.
  */
 import base from './index.js';
-import { pepperFingerprint } from './v95_family_shared.js';
+import { pepperFingerprint, readJson } from './v95_family_shared.js';
 import { FAMILY_ROUTES, handleFamily, revokeChildAccess } from './v95_family_api.js';
 import { newSecret, base32, matchStep, sealSecret, openSecret, otpauthUri,
   recoveryCode, RECOVERY_RE } from './v95_totp.js';
@@ -259,6 +259,30 @@ export async function requireAdultStepUp(req, env) {
     { ok: true, user, expiresIn: grant.expiresIn } :
     { ok: false, status: 403, error: 'adult_locked' };
 }
+/** Permanently delete the signed-in account and everything attached to it. */
+async function deleteAccount(req, env, user) {
+  const allowed = await access(env, user);
+  if (!allowed.adultAccess) return deny(403, 'adult_locked', '需要先通過二次驗證。請重新整理本頁。');
+  const body = await readJson(req, 512);
+  if (String(body?.confirmEmail ?? '').trim().toLowerCase() !== String(user.email).toLowerCase())
+    return deny(400, 'confirm_mismatch', '請輸入你的登入 Email 以確認刪除。');
+  const id = user.id;
+  const run = (sql, ...a) => env.DB.prepare(sql).bind(...a).run();
+  await run('DELETE FROM child_sessions WHERE guardian_user_id=?', id);
+  await run('DELETE FROM child_entry_codes WHERE guardian_user_id=?', id);
+  await run('DELETE FROM children WHERE guardian_user_id=?', id);
+  await run('DELETE FROM guardian_declarations WHERE user_id=?', id);
+  await run('DELETE FROM parent_totp_recovery WHERE user_id=?', id);
+  await run('DELETE FROM parent_totp WHERE user_id=?', id);
+  await run('DELETE FROM daily_ai_usage WHERE user_id=?', id);
+  await run('DELETE FROM parent_grants WHERE session_hash IN (SELECT token_hash FROM sessions WHERE user_id=?)', id);
+  await run('DELETE FROM parent_challenges WHERE session_hash IN (SELECT token_hash FROM sessions WHERE user_id=?)', id);
+  await run('DELETE FROM sessions WHERE user_id=?', id);
+  await run('DELETE FROM login_codes WHERE email=?', user.email);
+  await run('DELETE FROM users WHERE id=?', id);
+  return respond({ ok: true, message: '帳號與所有資料已刪除。' }, 200,
+    { 'set-cookie': 'neluun_sid=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0' });
+}
 const paths = new Set(['/api/parent/status', '/api/parent/challenge',
   '/api/parent/verify', '/api/parent/lock', '/api/parent/totp/status',
   '/api/parent/totp/begin', '/api/parent/totp/confirm', '/api/parent/totp/verify',
@@ -272,9 +296,10 @@ export default {
     const sensitiveOld = pathname === '/api/chat' ||
       pathname === '/api/guardian/declare' || pathname === '/api/guardian/withdraw';
     const family = pathname.startsWith('/api/family/');
+    const accountDelete = pathname === '/api/account/delete';
     // The adult site never serves the child API: children use their own site.
     if (pathname.startsWith('/api/kids/')) return deny(404, 'unknown_endpoint', '這裡沒有孩童入口。');
-    if (!parent && !privateStatus && !logout && !sensitiveOld && !family) return base.fetch(req, env);
+    if (!parent && !privateStatus && !logout && !sensitiveOld && !family && !accountDelete) return base.fetch(req, env);
     if (parent && !paths.has(pathname)) return deny(404, 'unknown_endpoint', '安全驗證路徑不存在。');
     if (family && !Object.hasOwn(FAMILY_ROUTES, pathname)) return deny(404, 'unknown_endpoint', '找不到 API。');
     const isGet = family ? FAMILY_ROUTES[pathname] === 'GET' : (pathname === '/api/parent/status' || pathname === '/api/parent/totp/status' || pathname === '/api/parent/pepper-fp' || privateStatus);
@@ -297,6 +322,7 @@ export default {
     try {
       const user = await identity(req, env);
       if (!user) return deny(401, 'sign_in', '尚未登入。請先在成人入口用 Email 登入。');
+      if (accountDelete) return await deleteAccount(req, env, user);
       if (family) {
         if (!(await access(env, user)).adultAccess)
           return deny(403, 'adult_locked', '需要先通過二次驗證。請重新整理本頁。');

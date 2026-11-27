@@ -126,6 +126,13 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
     <div id="checkOut"></div>
   </details>
 
+  <details class="panel" id="delBox">
+    <summary>刪除帳號與所有資料</summary>
+    <p>會永久刪除你的帳號、所有孩子檔案、驗證器與備用碼，並立刻登出孩子。無法復原。</p>
+    <label for="delEmail">輸入你的登入 Email 確認</label>
+    <input id="delEmail" type="email" autocomplete="off" autocapitalize="none">
+    <button id="delGo" type="button" class="danger">永久刪除</button>
+  </details>
   <button id="lock" class="secondary" type="button">鎖定成人區</button>
 </section>
 </main>
@@ -336,6 +343,13 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
       await api('/api/family/children/create','POST',{nickname:$('nick').value,avatar:$('avatar').value});
       $('nick').value='';await refresh();
     }catch(e){msg(e.message)}
+  };
+  $('delGo').onclick=async function(){
+    msg('');var v=$('delEmail').value.trim();
+    if(!v){msg('請先輸入你的登入 Email。');return}
+    if(!confirm('確定永久刪除帳號與所有資料？無法復原。'))return;
+    try{await api('/api/account/delete','POST',{confirmEmail:v});location.href='./'}
+    catch(e){if(e.code==='adult_locked'){boot();return}msg(e.message)}
   };
   $('lock').onclick=async function(){try{await api('/api/parent/lock','POST',{})}catch(e){}boot()};
   boot();

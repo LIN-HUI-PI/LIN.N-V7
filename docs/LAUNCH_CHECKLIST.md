@@ -11,9 +11,9 @@ Legal items are engineering notes, not legal advice; have a lawyer review before
 - [x] End companion session revokes child session immediately
 - [x] OTP_PEPPER consistency check (family.html system check)
 - [x] Rate limits on OTP, TOTP, child entry
-- [~] Verified sending domain (neluun.app on Resend, status Pending) then set secret EMAIL_FROM
+- [~] Resend domain neluun.app Verified; set secret EMAIL_FROM to NELUUN <no-reply@neluun.app> on adult Worker
 - [ ] Test with a second real email account (non-owner)
-- [ ] Account deletion (adult): delete user, children, sessions, TOTP, declarations
+- [x] Account deletion (adult): delete user, children, sessions, TOTP, declarations (POST /api/account/delete, button in family.html)
 - [ ] Child profile deletion with data purge (profile deletion exists; verify cascade of sessions and learning records)
 - [ ] Session/inactivity timeout review; logout-everywhere
 - [ ] Server-side audit log for guardian actions (declare, start/end companion, TOTP remove)

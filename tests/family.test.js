@@ -414,3 +414,25 @@ test('Kids health is cross-origin readable only from the adult site, and exposes
   assert.equal((await ask('https://evil.example')).headers.get('access-control-allow-origin'), null);
   assert.equal((await ask(null)).headers.get('access-control-allow-origin'), null);
 });
+
+test('Account deletion: needs step-up and matching email; removes every row of the user and nothing of others', async () => {
+  const { db, env } = await setup();
+  const mk = await json(await A(env, '/api/family/children/create', { method: 'POST', body: { nickname: 'x', avatar: 'cat' } }));
+  assert.equal(mk.status, 403); // locked before step-up
+  assert.equal((await A(env, '/api/account/delete', { method: 'POST', body: { confirmEmail: 'a@example.org' } })).status, 403);
+  await unlock(db);
+  const child = await json(await A(env, '/api/family/children/create', { method: 'POST', body: { nickname: 'x', avatar: 'cat' } }));
+  assert.equal(child.status, 200);
+  await A(env, '/api/family/companion/start', { method: 'POST', body: { childId: (db.prepare('SELECT id FROM children').get()).id, minutes: 30 } });
+  assert.equal((await A(env, '/api/account/delete', { method: 'POST', body: { confirmEmail: 'wrong@example.org' } })).status, 400);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM users').get().n, 2);
+  const res = await A(env, '/api/account/delete', { method: 'POST', body: { confirmEmail: ' A@Example.org ' } });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('set-cookie'), /Max-Age=0/);
+  for (const [t, col] of [['users', 'id'], ['sessions', 'user_id'], ['children', 'guardian_user_id'],
+    ['child_entry_codes', 'guardian_user_id'], ['child_sessions', 'guardian_user_id'],
+    ['guardian_declarations', 'user_id'], ['parent_grants', null]])
+    assert.equal(db.prepare(`SELECT COUNT(*) n FROM ${t}${col ? ` WHERE ${col}='user-a'` : ''}`).get().n, 0, t);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM users WHERE id='user-b'").get().n, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM sessions WHERE user_id='user-b'").get().n, 1);
+});
