@@ -100,7 +100,11 @@ async function sendLoginEmail(env, email, code) {
       Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json',
     }, body: JSON.stringify(msg),
   });
-  if (!res.ok) throw Error('Email delivery failed');
+  if (!res.ok) {
+    let name = '';
+    try { name = String((await res.json()).name || '').slice(0, 40); } catch { /* ignore */ }
+    throw Error(`resend_${res.status}${name ? ':' + name : ''}`);
+  }
 }
 async function requestCode(req, env) {
   if (!authReady(env)) return fail(503, 'not_configured', '登入服務尚未啟用。');
@@ -119,9 +123,11 @@ async function requestCode(req, env) {
     code_hash=excluded.code_hash,expires_at=excluded.expires_at,attempts=0,issued_at=excluded.issued_at`)
     .bind(email, hash, now + CODE_SECONDS, now).run();
   try { await sendLoginEmail(env, email, code); }
-  catch {
+  catch (e) {
     await env.DB.prepare('DELETE FROM login_codes WHERE email=? AND code_hash=?').bind(email, hash).run();
-    return fail(502, 'email_unavailable', '郵件暫時無法寄送，請稍後再試。');
+    const why = String(e && e.message || '').startsWith('resend_') ? e.message : 'send_failed';
+    console.error('login email failed', why);
+    return fail(502, 'email_unavailable', `郵件暫時無法寄送，請稍後再試。（錯誤代碼：${why}）`);
   }
   return json({ ok: true, message: '驗證碼已寄出，請查看信箱。' });
 }

@@ -77,7 +77,11 @@ async function sendEmail(env, email, code) {
     headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify(mail)
   });
-  if (!response.ok) throw Error('email_failed');
+  if (!response.ok) {
+    let name = '';
+    try { name = String((await response.json()).name || '').slice(0, 40); } catch { /* ignore */ }
+    throw Error('resend_' + response.status + (name ? ':' + name : ''));
+  }
 }
 async function access(env, user) {
   const row = await env.DB.prepare(
