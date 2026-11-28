@@ -304,6 +304,8 @@ app.addEventListener('click',event=>{
   case 'resetLogin':s.authStage='email';s.authMessage='';render();break;
  case 'clearLocal':clearLocal();break;
  case 'mode':s.mode=button.dataset.mode;render();window.scrollTo(0,0);break;
+ case 'showLogin':s.v95ShowLogin=true;render();window.scrollTo(0,0);break;
+ case 'hideLogin':s.v95ShowLogin=false;render();window.scrollTo(0,0);break;
  case 'goHome':s.adultView='home';render();window.scrollTo(0,0);break;
  case 'choose':s.mode='choice';s.homeAccountOpen=false;render();window.scrollTo(0,0);break;
  case 'homeAccount':s.homeAccountOpen=true;render();break;

@@ -91,13 +91,14 @@ async function v95RequireServer(){
   v95ServerVerified=false;throw Error('請先完成家長電子郵件二次驗證。');
  }
 }
-function v95Gate(){const h=v95GateBase();return (s.auth&&s.auth.authenticated)?h.replace(/<\/section><\/div>\s*$/,'<p style="text-align:center"><button type="button" class="v95-secondary" data-action="logout">登出此帳號</button></p></section></div>'):h}
+function v95Landing(){return '<div class="v95-protect"><section class="v95-card" style="text-align:center"><h1 style="font-family:Georgia,serif;font-weight:500">NELUUN</h1><p style="letter-spacing:.2em;font-size:12px">PERSONAL ASSISTANT</p><h2 style="font-family:Georgia,serif;font-weight:500">留一點安靜，<br>給今天的自己。</h2><p>個人助理：對話、待辦與筆記，放在同一個安靜的地方。</p><p>用電子郵件驗證碼登入，不需要設定密碼。目前為測試版。</p><button type="button" data-action="showLogin">登入</button><p style="font-size:12px;margin-top:18px">本網站只供成人使用。孩子的學習助理是另一個獨立網站，需要家長提供的 8 位數代碼。</p></section></div>'}
+function v95Gate(){if((!s.auth||!s.auth.authenticated)&&!s.v95ShowLogin)return v95Landing();const h=v95GateBase();return (s.auth&&s.auth.authenticated)?h.replace(/<\/section><\/div>\s*$/,'<p style="text-align:center"><button type="button" class="v95-secondary" data-action="logout">登出此帳號</button></p></section></div>'):h}
 const v95PaaOrig=performAccountAction;
-performAccountAction=async function(t){await v95PaaOrig(t);if(t==='logout'){try{v95Lock()}catch{}s.v95Unlocked=false;v95Key=null;v95Error='';render()}};
+performAccountAction=async function(t){await v95PaaOrig(t);if(t==='logout'){s.v95ShowLogin=false;try{v95Lock()}catch{}s.v95Unlocked=false;v95Key=null;v95Error='';render()}};
 function v95GateBase(){
  if(v95ServerVerified&&Date.now()>=v95GrantUntil){v95ServerVerified=false;s.v95Unlocked=false;v95Key=null;}
  if(!s.authOnline||!s.auth.authenticated)
-  return '<div class="v95-protect"><section class="v95-card"><h1>先登入成人帳號</h1><p>兒童練習不用登入，成人私人區需要先驗證電子郵件。</p>'+accountArea()+'</section></div>';
+  return '<div class="v95-protect"><section class="v95-card"><h1>先登入成人帳號</h1><p>兒童練習不用登入，成人私人區需要先驗證電子郵件。</p>'+accountArea()+'<button type="button" class="v95-secondary" data-action="hideLogin">返回</button></section></div>';
  if(!v95ServerVerified)
   return '<div class="v95-protect"><section class="v95-card"><h1>成人區二次驗證</h1><p>先寄送六位數驗證碼到已登入的信箱，再使用這台裝置的家長密碼。</p>'+(v95Error?'<div class="v95-error" role="alert">'+html(v95Error)+'</div>':'')+'<button type="button" data-action="v95SendCode">寄送六位數驗證碼</button>'+(v95CodeSent?'<form data-form="v95CheckCode"><label for="v95code">信箱驗證碼</label><input id="v95code" name="parentCode" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code" required><button type="submit">確認驗證碼</button></form>':'')+'</section></div>';
  const setup=!v95HasVault();
