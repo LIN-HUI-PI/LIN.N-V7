@@ -91,7 +91,10 @@ async function v95RequireServer(){
   v95ServerVerified=false;throw Error('請先完成家長電子郵件二次驗證。');
  }
 }
-function v95Gate(){
+function v95Gate(){const h=v95GateBase();return (s.auth&&s.auth.authenticated)?h.replace(/<\/section><\/div>\s*$/,'<p style="text-align:center"><button type="button" class="v95-secondary" data-action="logout">登出此帳號</button></p></section></div>'):h}
+const v95PaaOrig=performAccountAction;
+performAccountAction=async function(t){await v95PaaOrig(t);if(t==='logout'){try{v95Lock()}catch{}s.v95Unlocked=false;v95Key=null;v95Error='';render()}};
+function v95GateBase(){
  if(v95ServerVerified&&Date.now()>=v95GrantUntil){v95ServerVerified=false;s.v95Unlocked=false;v95Key=null;}
  if(!s.authOnline||!s.auth.authenticated)
   return '<div class="v95-protect"><section class="v95-card"><h1>先登入成人帳號</h1><p>兒童練習不用登入，成人私人區需要先驗證電子郵件。</p>'+accountArea()+'<button type="button" class="v95-secondary" data-action="choose">回到首頁</button></section></div>';
