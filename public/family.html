@@ -36,6 +36,7 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
 </style></head>
 <body><main class="wrap">
 <h1>家長管理</h1>
+<p style="text-align:center;margin:0 0 8px"><button type="button" id="logoutBtn" class="hidden">登出</button></p>
 <p class="note" style="text-align:center">孩子帳號、陪同授權。孩子用另一個網址進入，不能進到這裡。</p>
 <div id="msg" class="err hidden" role="alert"></div>
 
@@ -166,11 +167,14 @@ a{color:#e8c58e}button:focus-visible,input:focus-visible,select:focus-visible{ou
     $('vlabel').textContent='驗證器上的 6 位數';
     $('vcode').setAttribute('inputmode','numeric');$('vcode').setAttribute('maxlength','6');$('vcode').value='';
   }
+  var lo=$('logoutBtn');
+  if(lo)lo.onclick=async function(){try{await api('/api/auth/logout','POST',{})}catch(e){}location.href='./'};
   async function boot(){
     msg('');['needLogin','needVerify','main'].forEach(function(x){show(x,false)});
     var me;
     try{me=await api('/api/me')}catch(e){msg(e.message);return}
     if(!me.authenticated){show('needLogin',true);return}
+    show('logoutBtn',true);
     var st;
     try{st=await api('/api/parent/status?strict=1')}
     catch(e){
